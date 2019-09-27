@@ -1,5 +1,5 @@
 #include <stocs.hpp>
-
+#include <random>
 #include <boost/functional/hash.hpp>
 
 #include "Eigen/Core"
@@ -384,7 +384,7 @@ stocs_estimator::sample_class_base(std::vector<int> &base_indices,
 	int base_index1 = sample_point_from_distribution(point3d_scene);
 
 	if(point3d_scene[base_index1].probability() == 0.0) {
-		std::cout << "FAILED SAMPLING:: Zero probability returned!!!" << std::endl;
+		std::cout << "FAILED SAMPLING PT1:: Zero probability returned!!!" << std::endl;
 		return false;
 	}
 
@@ -410,7 +410,7 @@ stocs_estimator::sample_class_base(std::vector<int> &base_indices,
 	int base_index2 = sample_point_from_distribution(point3d_scene);
 
 	if(point3d_scene[base_index2].probability() == 0.0) {
-		std::cout << "FAILED SAMPLING:: Zero probability returned!!!" << std::endl;
+		std::cout << "FAILED SAMPLING PT2:: Zero probability returned!!!" << std::endl;
 		return false;
 	}
 
@@ -445,7 +445,7 @@ stocs_estimator::sample_class_base(std::vector<int> &base_indices,
 	int base_index3 = sample_point_from_distribution(point3d_scene);
 
 	if(point3d_scene[base_index3].probability() == 0.0) {
-		std::cout << "FAILED SAMPLING:: Zero probability returned!!!" << std::endl;
+		std::cout << "FAILED SAMPLING PT3:: Zero probability returned!!!" << std::endl;
 		return false;
 	}
 
@@ -500,7 +500,7 @@ stocs_estimator::sample_class_base(std::vector<int> &base_indices,
 	int base_index4 = sample_point_from_distribution(point3d_scene);
 
 	if(point3d_scene[base_index4].probability() == 0.0) {
-		std::cout << "FAILED SAMPLING:: Zero probability returned!!!" << std::endl;
+		std::cout << "FAILED SAMPLING PT4:: Zero probability returned!!!" << std::endl;
 		return false;
 	}
 

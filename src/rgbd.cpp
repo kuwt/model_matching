@@ -73,13 +73,49 @@ void
 compute_normal_pcl(PCLPointCloud::Ptr cloud,
                   float radius) {
 
+	
+	
+  pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
+  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in(new pcl::PointCloud<pcl::PointXYZ>);
+  // Fill in the CloudIn data
+  cloud_in->width = cloud->width;
+  cloud_in->height = cloud->height;
+  cloud_in->is_dense = true;
+  cloud_in->points.resize(cloud_in->width * cloud_in->height);
+#pragma omp parallel for
+  for (size_t i = 0; i < cloud_in->points.size(); ++i)
+  {
+	  //cloud_in->
+	  cloud_in->points[i].x = (float)cloud->points[i].x;
+	  cloud_in->points[i].y = (float)cloud->points[i].y;
+	  cloud_in->points[i].z = (float)cloud->points[i].z;
+  }
+
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
+
+  ne.setInputCloud(cloud_in);
+  ne.setSearchMethod(tree);
+  ne.setRadiusSearch(radius);
+  ne.compute(*cloud_normals);
+#pragma omp parallel for
+  for (int i = 0; i < cloud->points.size(); i++)
+  {
+	  cloud->points[i].normal_x = cloud_normals->points[i].normal_x;
+	  cloud->points[i].normal_y = cloud_normals->points[i].normal_y;
+	  cloud->points[i].normal_z = cloud_normals->points[i].normal_z;
+  }
+
+/*
   pcl::NormalEstimation<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> ne;
   pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBNormal> ());
+  
   ne.setInputCloud (cloud);
   ne.setSearchMethod (tree);
   ne.setRadiusSearch (radius);
   ne.compute (*cloud);
-
+  */
 }
 
 int 
