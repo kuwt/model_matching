@@ -3,9 +3,9 @@
 static std::string repo_path = "D:/ronaldwork/model_matching";
 
 // All values in m
-static float voxel_size = 0.01;
-static float normal_radius = 0.005;
-static float model_scale = 1.0;
+static float voxel_size = 0.01;		// sampling size
+static float normal_radius = 0.005; // radius for calculating normal vector of a point
+static float model_scale = 1.0;		// input model scale
 
 // All values in mm
 static int ppf_tr_discretization = 5;

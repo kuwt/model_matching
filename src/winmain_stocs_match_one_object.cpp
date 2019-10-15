@@ -11,12 +11,12 @@ static float distance_threshold = 0.005; // for Congruent Set Matching and LCP c
 static int ppf_tr_discretization = 5; // In mm
 static int ppf_rot_discretization = 5; // degrees
 static float edge_threshold = 0; // Not used
-static float class_threshold = 0.10; // Cut-off probability
+static float class_threshold = 0.30; // Cut-off probability
 static float sample_dispersion = 0.9;
 
 // stocs parameters
-static int number_of_bases = 100;
-static int maximum_congruent_sets = 200;
+static int number_of_bases = 200;
+static int maximum_congruent_sets = 500;
 
 // camera parameters
 static std::vector<float> cam_intrinsics = {1066.778, 312.986, 1067.487, 241.310}; //YCB
@@ -79,7 +79,7 @@ void run_stocs_estimation(std::string scene_path,
 									ppf_tr_discretization, ppf_rot_discretization,
 									edge_threshold, class_threshold);
 
-	// Step 1: Sample n bases on scene
+	//-------------- Step 1: Sample n bases on scene ----------------------/
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < number_of_bases; i++) 
 	{
@@ -115,8 +115,9 @@ void run_stocs_estimation(std::string scene_path,
 	
 	auto total_time = std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count();
 
-	// Step 2: Get corresponding congruent sets on the model for each of the sampled bases
+	//-------------- Step 2: find corresponding congruent sets on the model for each of the sampled bases --------------/
     start = std::chrono::high_resolution_clock::now();
+	int total_congruent_set_found = 0;
 	for (auto base_iterator: base_set) 
 	{
 		bool congruent_sets_found = false;
@@ -125,45 +126,57 @@ void run_stocs_estimation(std::string scene_path,
 																	base_iterator->invariant1_, base_iterator->invariant2_,
 																	&base_iterator->congruent_quads);
 		// get number of congruent sets found, time for each computation
-	}
 
-	// Step 3: Sample a maximum of k congruent pairs from each base and get rigid transformations
-	int total_congruent_set_found = 0;
+		int congruent_set_size = base_iterator->congruent_quads.size();
+		total_congruent_set_found += congruent_set_size;
+	}
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "get  " << total_congruent_set_found  << " congruent set in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
+
+	//-------------- Step 3:  get rigid transformations from a maximum of k congruent pairs from each base --------------/
+	start = std::chrono::high_resolution_clock::now();
+	int total_congruent_set_to_compute_transform = 0;
 	int base_number = 0;
 	for (auto base_iterator: base_set) 
 	{
 		int congruent_set_size = base_iterator->congruent_quads.size();
-
-		if(congruent_set_size < maximum_congruent_sets){
-
+		if(congruent_set_size < maximum_congruent_sets)
+		{
 			for (int i = 0; i < congruent_set_size; i++)
+			{
 				stocs_ptr.get_rigid_transform_from_congruent_pair(base_iterator->baseIds_, base_iterator->congruent_quads[i], base_number);
-
+			}
+			total_congruent_set_to_compute_transform += congruent_set_size;
 		} 
 		else 
 		{
 			std::vector<int> c_set_indices(congruent_set_size);
 
-			for (int i = 0; i < congruent_set_size; i++) 
+			for (int i = 0; i < congruent_set_size; i++)
+			{
 				c_set_indices.push_back(i);
+			}
 			
 			std::random_shuffle ( c_set_indices.begin(), c_set_indices.end() );
 
-			for (int i=0; i < maximum_congruent_sets; i++)
+			for (int i = 0; i < maximum_congruent_sets; i++)
+			{
 				stocs_ptr.get_rigid_transform_from_congruent_pair(base_iterator->baseIds_, base_iterator->congruent_quads[c_set_indices[i]], base_number);
+			}
+			total_congruent_set_to_compute_transform += maximum_congruent_sets;
 		}
-
-		total_congruent_set_found += congruent_set_size;
 		base_number++;
 	}
 	finish = std::chrono::high_resolution_clock::now();
-	std::cout << "found " << total_congruent_set_found << " congruent sets in "
+	std::cout << "calculate " << total_congruent_set_to_compute_transform << " rigid transform from congruent sets in "
               << std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
               << " milliseconds\n";
 
     total_time += std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count();
 
-	// Verify all transforms to get the best pose
+	//--------------step 4. Verify all transforms to get the best pose --------------/
     start = std::chrono::high_resolution_clock::now();
 
 	stocs_ptr.compute_best_transform();
@@ -175,6 +188,7 @@ void run_stocs_estimation(std::string scene_path,
 
     total_time += std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count();
 
+	//--------------step 5. Visualization and get result --------------/
 	stocs_ptr.visualize_best_pose();
     PoseCandidate* best_pose = stocs_ptr.get_best_pose();
 
@@ -198,17 +212,15 @@ void run_stocs_estimation(std::string scene_path,
 int stocs_est(std::string scene_path, std::string object_name)
 {
 	std::cout << "############# LOADING OBJECT MAPS ################" << std::endl;
-
 	// load PPF map
 	PPFMapType model_map;
     std::string model_map_path = repo_path + "/models/" + object_name + "/ppf_map";
     rgbd::load_ppf_map(model_map_path, model_map);
-
     std::cout << "############# LOADING OBJECT COMPLETE ################" << std::endl;
 
 	fs::create_directories(scene_path + "/dbg");
-	std::cout << "############# RUNNING STOCS for Scene: " << scene_path << ", Object: " << object_name << " ##############" << std::endl;
 
+	std::cout << "############# RUNNING STOCS for Scene: " << scene_path << ", Object: " << object_name << " ##############" << std::endl;
 	run_stocs_estimation(scene_path, object_name, model_map);
 
  	return 0;

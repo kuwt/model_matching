@@ -137,23 +137,23 @@ ppf_compute(Point3D point_1,
             Point3D point_2, 
             float tr_discretization,
             float rot_discretization,
-            std::vector<int> &ppf_) {
+            std::vector<int> &ppf_) 
+{
+	  typename Point3D::VectorType p1 = point_1.pos();
+	  typename Point3D::VectorType p2 = point_2.pos();
+	  typename Point3D::VectorType n1 = point_1.normal();
+	  typename Point3D::VectorType n2 = point_2.normal();
+	  typename Point3D::VectorType u = p1 - p2;
 
-  typename Point3D::VectorType p1 = point_1.pos();
-  typename Point3D::VectorType p2 = point_2.pos();
-  typename Point3D::VectorType n1 = point_1.normal();
-  typename Point3D::VectorType n2 = point_2.normal();
-  typename Point3D::VectorType u = p1 - p2;
+	  int ppf_1 = int(u.norm()*1000);
+	  int ppf_2 = int(atan2(n1.cross(u).norm(), n1.dot(u))*180/M_PI);
+	  int ppf_3 = int(atan2(n2.cross(u).norm(), n2.dot(u))*180/M_PI);
+	  int ppf_4 = int(atan2(n1.cross(n2).norm(), n1.dot(n2))*180/M_PI);
 
-  int ppf_1 = int(u.norm()*1000);
-  int ppf_2 = int(atan2(n1.cross(u).norm(), n1.dot(u))*180/M_PI);
-  int ppf_3 = int(atan2(n2.cross(u).norm(), n2.dot(u))*180/M_PI);
-  int ppf_4 = int(atan2(n1.cross(n2).norm(), n1.dot(n2))*180/M_PI);
-
-  ppf_.push_back(ppf_closest_bin(ppf_1, tr_discretization));
-  ppf_.push_back(ppf_closest_bin(ppf_2, rot_discretization));
-  ppf_.push_back(ppf_closest_bin(ppf_3, rot_discretization));
-  ppf_.push_back(ppf_closest_bin(ppf_4, rot_discretization));
+	  ppf_.push_back(ppf_closest_bin(ppf_1, tr_discretization));
+	  ppf_.push_back(ppf_closest_bin(ppf_2, rot_discretization));
+	  ppf_.push_back(ppf_closest_bin(ppf_3, rot_discretization));
+	  ppf_.push_back(ppf_closest_bin(ppf_4, rot_discretization));
 }
 
 void 
@@ -161,42 +161,66 @@ ppf_map_insert(std::map<std::vector<int>, std::vector<std::pair<int, int> > > &P
               std::vector<int> ppf_,
               float tr_discretization,
               float rot_discretization,
-              std::pair<int, int> paired_index){
+              std::pair<int, int> paired_index)
+{
 
+// add the candidate to the target bin and its neighbour
   for (int p1 = ppf_[0] - tr_discretization; p1 < ppf_[0] + tr_discretization; p1 += tr_discretization)
     for (int p2 = ppf_[1] - 2*rot_discretization; p2 < ppf_[1] + 2*rot_discretization; p2 += rot_discretization)
       for (int p3 = ppf_[2] - 2*rot_discretization; p3 < ppf_[2] + 2*rot_discretization; p3 += rot_discretization)
-        for (int p4 = ppf_[3] - 2*rot_discretization; p4 < ppf_[3] + 2*rot_discretization; p4 += rot_discretization) {
-          
+        for (int p4 = ppf_[3] - 2*rot_discretization; p4 < ppf_[3] + 2*rot_discretization; p4 += rot_discretization) 
+		{
           // distances less than 5mm are not allowed to be sampled
-          if(p1 <= 5 || p2 < 0 || p3 < 0 || p4 < 0)
-            continue;
+			if (p1 <= 5 || p2 < 0 || p3 < 0 || p4 < 0)
+			{
+				continue;
+			}
+			std::vector<int> temp_ppf_ = {p1, p2, p3, p4};
 
-          std::vector<int> temp_ppf_ = {p1, p2, p3, p4};
-
-          auto it = PPFMap.find(temp_ppf_);
-          if (it == PPFMap.end()){
-
-            std::vector<std::pair<int,int> > indices;
-            indices.push_back(paired_index);
-            PPFMap.insert (std::pair<std::vector<int>, std::vector<std::pair<int, int> > >(temp_ppf_,indices));
-          }
-          else{
-
-            it->second.push_back(paired_index);
-          }
-
+			auto it = PPFMap.find(temp_ppf_);
+			if (it == PPFMap.end())
+			{
+				std::vector<std::pair<int,int> > indices;
+				indices.push_back(paired_index);
+				PPFMap.insert (std::pair<std::vector<int>, std::vector<std::pair<int, int> > >(temp_ppf_,indices));
+			}
+			else
+			{
+				it->second.push_back(paired_index);
+			}
         }
 }
 
-void
-save_ppf_map(std::string location,
-            std::map<std::vector<int>, std::vector<std::pair<int, int> > > &ppf_map) {
+void	save_ppf_map(std::string location,
+            std::map<std::vector<int>, std::vector<std::pair<int, int> > > &ppf_map) 
+{
+	// save binary
+	{
+		std::ofstream f(location, std::ios::binary);
+		if (f.fail()) return;
+		boost::archive::binary_oarchive oa(f);
+		oa << ppf_map;
+	}
 
-  std::ofstream f(location, std::ios::binary);
-  if (f.fail()) return;
-  boost::archive::binary_oarchive oa(f); 
-  oa << ppf_map; 
+	// save readable format
+	{
+		std::string locationReadable;
+		locationReadable = location + "R";
+		//std::FILE* f = std::fopen(locationReadable.c_str(), "w");
+		std::ofstream outFile(locationReadable);
+		std::map<std::vector<int>, std::vector<std::pair<int, int> > >::iterator it;
+		for (it = ppf_map.begin(); it != ppf_map.end(); it++)
+		{
+			outFile << it->first[0] << " " << it->first[1] << " " << it->first[2] << " " << it->first[3];
+			outFile << " :: ";
+			for (const auto &e : it->second)
+			{
+				outFile << " <" << e.first << "," << e.second <<  "> ";
+			}
+			outFile << "\n";
+		}
+		//std::fclose(f);
+	}
 }
 
 void
@@ -212,8 +236,7 @@ load_ppf_map(std::string ppf_map_location,
 
 }
 
-void
-load_rgbd_data_sampled(std::string rgb_location,
+void load_rgbd_data_sampled(std::string rgb_location,
                   std::string depth_location,
                   std::string class_probability_map_location,
                   cv::Mat& edge_probability_map,
@@ -221,8 +244,8 @@ load_rgbd_data_sampled(std::string rgb_location,
                   float depth_scale,
                   float voxel_size,
                   float class_probability_threshold,
-                  std::vector<Point3D>& point3d) {
-
+                  std::vector<Point3D>& point3d)
+{
   cv::Mat rgb_image;
   cv::Mat depth_image;
   cv::Mat class_probability_map;
@@ -234,16 +257,18 @@ load_rgbd_data_sampled(std::string rgb_location,
   depth_image = cv::imread(depth_location, CV_16UC1);
   class_probability_map = cv::imread(class_probability_map_location, CV_16UC1);
 
-  // compute surface normals
+  /************** compute surface normals *******************/
   cv::Mat K = (cv::Mat_<double>(3, 3) << camera_intrinsics[0], 0, camera_intrinsics[1], 0, camera_intrinsics[2], camera_intrinsics[3], 0, 0, 1);
   cv::rgbd::RgbdNormals normals_computer(depth_image.rows, depth_image.cols, CV_32F, K, 5, cv::rgbd::RgbdNormals::RGBD_NORMALS_METHOD_LINEMOD);
 
   normals_computer(depth_image, surface_normals);
   surface_normals.convertTo(surface_normals3f, CV_32FC3);
 
-  for (int i = 0; i < depth_image.rows; i++) {
-    for (int j = 0; j < depth_image.cols; j++) {
-
+  /************** compute point cloud from depth image *******************/
+  for (int i = 0; i < depth_image.rows; i++) 
+  {
+    for (int j = 0; j < depth_image.cols; j++)
+	{
         float depth = (float)depth_image.at<unsigned short>(i,j)*depth_scale;
 
         pcl::PointXYZRGB pt;
@@ -256,28 +281,34 @@ load_rgbd_data_sampled(std::string rgb_location,
         pt.rgb = *reinterpret_cast<float*>(&rgb);
 
         cloud->points.push_back(pt);
-
       }
   }  
 
+  /************** downsample cloud *******************/
   pcl::VoxelGrid<pcl::PointXYZRGB> sor;
   sor.setInputCloud (cloud);
   sor.setLeafSize (voxel_size, voxel_size, voxel_size);
   sor.filter (*cloud);
 
+  /************** remove outliner *******************/
   pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> outrem;
   outrem.setInputCloud(cloud);
   outrem.setRadiusSearch(2*voxel_size + 0.005);
   outrem.setMinNeighborsInRadius (10);
   outrem.filter (*cloud);
 
-  for(auto pt: cloud->points) {
+  /************** further filter *******************/
+  for(auto pt: cloud->points)
+  {
     typename Point3D::VectorType n;
     typename Point3D::VectorType rgb;
-    
-    if(std::isnan(pt.z) || pt.z <= 0 || pt.z > 2.0)
-      continue;
-    
+   
+	/*** remove nan ***/
+	if (std::isnan(pt.z) || pt.z <= 0 || pt.z > 2.0)
+	{
+		continue;
+	}
+	/*** project points back to image ***/
     Eigen::Matrix3f mat;
     mat << camera_intrinsics[0], 0, camera_intrinsics[1],
             0, camera_intrinsics[2], camera_intrinsics[3],
@@ -287,30 +318,34 @@ load_rgbd_data_sampled(std::string rgb_location,
     int col = point2D[0]/point2D[2];
     int row = point2D[1]/point2D[2];
     
+	/*** remove lower probability points ***/
     float class_probability = (float)class_probability_map.at<unsigned short>(row,col)*(1.0/10000);
     float edge_probability = (float)(255.0 - edge_probability_map.at<unsigned char>(row,col))/255.0;
 
-    if(class_probability < class_probability_threshold)
-      continue;
+	if (class_probability < class_probability_threshold)
+	{
+		continue;
+	}
 
+	/*** remove points with surface normal invalidation conditions ***/
     cv::Vec3f cv_normal = surface_normals3f(row, col);
     cv::Vec3b cv_color = rgb_image.at<cv::Vec3b>(row, col);
-
-    // surface normal invalidation conditions
-    if(std::isnan(cv_normal[0]) || std::isnan(cv_normal[1]) || std::isnan(cv_normal[2]))
-      continue;
-    if(cv_normal[0] == 0 && cv_normal[1] == 0 && cv_normal[2] == 0)
-      continue;
-
-    point3d.emplace_back( pt.x, pt.y, pt.z);
+	if (std::isnan(cv_normal[0]) || std::isnan(cv_normal[1]) || std::isnan(cv_normal[2]))
+	{
+		continue;
+	}
+	if (cv_normal[0] == 0 && cv_normal[1] == 0 && cv_normal[2] == 0)
+	{
+		continue;
+	}
+   
+	/*** set the points ***/
+	point3d.emplace_back(pt.x, pt.y, pt.z);
     n << cv_normal[0], cv_normal[1], cv_normal[2];
     rgb << cv_color.val[2], cv_color.val[1], cv_color.val[0];
-
-    //normalizes and sets the normal
     point3d.back().set_normal(n);
     point3d.back().set_rgb(rgb);
     point3d.back().set_pixel(std::make_pair(row, col));
-
     point3d.back().set_probability(class_probability, edge_probability);
   }
 
