@@ -212,7 +212,7 @@ void	save_ppf_map(std::string location,
 		for (it = ppf_map.begin(); it != ppf_map.end(); it++)
 		{
 			outFile << it->first[0] << " " << it->first[1] << " " << it->first[2] << " " << it->first[3];
-			outFile << " :: ";
+			outFile << " :: " << it->second.size();
 			for (const auto &e : it->second)
 			{
 				outFile << " <" << e.first << "," << e.second <<  "> ";
