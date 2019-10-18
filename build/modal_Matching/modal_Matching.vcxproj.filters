@@ -47,5 +47,8 @@
     <ClCompile Include="..\..\src\winmain_stocs_match_one_object.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\winmain_mytest.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
