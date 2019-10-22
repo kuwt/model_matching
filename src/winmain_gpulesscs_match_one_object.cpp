@@ -26,45 +26,7 @@ static int image_width = 640;
 static int image_height = 480;
 
 
-static float compute_alignment_score_for_rigid_transform(
-	std::vector<Point3D> &point3d_model,
-	std::vector<Point3D>& point3d_scene,
-	const Eigen::Ref<const Eigen::Matrix<float, 4, 4>>& mat,
-	Super4PCS::KdTree<float> &kd_tree_)
-{
-	// We allow factor 2 scaling in the normalization.
-	const float epsilon = distance_threshold;
-	float weighted_match = 0;
-
-	const size_t number_of_points_model = point3d_model.size();
-	const float sq_eps = epsilon * epsilon;
-
-	for (int i = 0; i < number_of_points_model; ++i)
-	{
-		// Use the kdtree to get the nearest neighbor
-		Super4PCS::KdTree<float>::Index resId =
-			kd_tree_.doQueryRestrictedClosestIndex(
-			(mat * point3d_model[i].pos().homogeneous()).head<3>(),
-				sq_eps);
-
-		if (resId != Super4PCS::KdTree<float>::invalidIndex())
-		{
-			Point3D::VectorType n_q = mat.block<3, 3>(0, 0) * point3d_model[i].normal();
-
-			float angle_n = std::acos(point3d_scene[resId].normal().dot(n_q)) * 180 / M_PI;
-
-			// angle_n = std::min(angle_n, float(fabs(180-angle_n)));
-
-			if (angle_n < 30)
-			{
-				weighted_match += point3d_scene[resId].class_probability();
-			}
-		}
-	}
-	return weighted_match / float(number_of_points_model);
-}
-
-int testBruteforceReg(std::string scene_path, std::string object_name)
+int gpulesscs(std::string scene_path, std::string object_name)
 {
 	std::string rgb_location = scene_path + "/rgb.png";
 	std::string depth_location = scene_path + "/depth.png";
@@ -187,10 +149,6 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 				e.ppf[1] = ppf[1];
 				e.ppf[2] = ppf[2];
 				e.ppf[3] = ppf[3];
-				//e.srcCoord[0] = p1;
-				//e.srcCoord[1] = p2;
-				//e.tarCoord[0] = point3d_model[e.tarId[0]];
-				//e.tarCoord[1] = point3d_model[e.tarId[1]];
 				poseEsts.push_back(e);
 			}
 		}
@@ -324,158 +282,6 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 		trans44 = trans44TslateFromOriginToTar * Trans44RotFromTarToXaxisTp * trans44Rot * trans44TranslateFromSrcToOrigin;
 
 		poseEsts.at(i).trans44 = trans44;
-		// debug
-		if (0)
-		{
-			Point3D::VectorType src_p1_debug = src_p1;
-			Point3D::VectorType src_p1_to_p2 = (src_p2 - src_p1);
-			src_p1_to_p2.normalize();
-			Point3D::VectorType src_p2_debug = src_p1 + src_p1_to_p2;
-			Point3D::VectorType src_p3_debug = src_p1 + src_n1;
-
-			Point3D::VectorType tar_p1_debug = tar_p1;
-			Point3D::VectorType tar_p1_to_p2 = (tar_p2 - tar_p1);
-			tar_p1_to_p2.normalize();
-			Point3D::VectorType tar_p2_debug = tar_p1 + tar_p1_to_p2;
-			Point3D::VectorType tar_p3_debug = tar_p1 + tar_n1;
-
-			{
-				std::string path;
-				path = debug_path + "/srcPts.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n",src_p1_debug.x(), src_p1_debug.y(),src_p1_debug.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug.x(), src_p2_debug.y(), src_p2_debug.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug.x(), src_p3_debug.y(), src_p3_debug.z());
-				
-				std::fclose(f);
-			}
-
-			{
-				std::string path;
-				path = debug_path + "/tarPts.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", tar_p1_debug.x(), tar_p1_debug.y(), tar_p1_debug.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p2_debug.x(), tar_p2_debug.y(), tar_p2_debug.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p3_debug.x(), tar_p3_debug.y(), tar_p3_debug.z());
-
-				std::fclose(f);
-			}
-
-			Point3D::VectorType src_p1_debug_trans;
-			Point3D::VectorType src_p2_debug_trans;
-			Point3D::VectorType src_p3_debug_trans;
-
-			src_p1_debug_trans = src_p1_debug + tslateFromSrcToOrigin;
-			src_p2_debug_trans = src_p2_debug + tslateFromSrcToOrigin;
-			src_p3_debug_trans = src_p3_debug + tslateFromSrcToOrigin;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-			src_p1_debug_trans = rotation * src_p1_debug_trans;
-			src_p2_debug_trans = rotation * src_p2_debug_trans;
-			src_p3_debug_trans = rotation * src_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans2.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-			src_p1_debug_trans = rotation_tar_normal_to_x_axis_transpose * src_p1_debug_trans;
-			src_p2_debug_trans = rotation_tar_normal_to_x_axis_transpose * src_p2_debug_trans;
-			src_p3_debug_trans = rotation_tar_normal_to_x_axis_transpose * src_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans3.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-			src_p1_debug_trans = tslateFromOriginToTar + src_p1_debug_trans;
-			src_p2_debug_trans = tslateFromOriginToTar + src_p2_debug_trans;
-			src_p3_debug_trans = tslateFromOriginToTar + src_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans4.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-
-			Point3D::VectorType tar_p1_debug_trans;
-			Point3D::VectorType tar_p2_debug_trans;
-			Point3D::VectorType tar_p3_debug_trans;
-
-			tar_p1_debug_trans = tar_p1_debug - tslateFromOriginToTar;
-			tar_p2_debug_trans = tar_p2_debug - tslateFromOriginToTar;
-			tar_p3_debug_trans = tar_p3_debug - tslateFromOriginToTar;
-			{
-				std::string path;
-				path = debug_path + "/tarPts_trans.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", tar_p1_debug_trans.x(), tar_p1_debug_trans.y(), tar_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p2_debug_trans.x(), tar_p2_debug_trans.y(), tar_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p3_debug_trans.x(), tar_p3_debug_trans.y(), tar_p3_debug_trans.z());
-
-				std::fclose(f);
-			}
-			tar_p1_debug_trans = rotation_tar_normal_to_x_axis * tar_p1_debug_trans;
-			tar_p2_debug_trans = rotation_tar_normal_to_x_axis * tar_p2_debug_trans;
-			tar_p3_debug_trans = rotation_tar_normal_to_x_axis * tar_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/tarPts_trans2.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", tar_p1_debug_trans.x(), tar_p1_debug_trans.y(), tar_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p2_debug_trans.x(), tar_p2_debug_trans.y(), tar_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p3_debug_trans.x(), tar_p3_debug_trans.y(), tar_p3_debug_trans.z());
-
-				std::fclose(f);
-			}
-
-			Eigen::Vector4f src_p1_debug4, src_p2_debug4, src_p3_debug4;
-			src_p1_debug4 << src_p1_debug.x(), src_p1_debug.y(), src_p1_debug.z(), 1.0;
-			src_p2_debug4 << src_p2_debug.x(), src_p2_debug.y(), src_p2_debug.z(), 1.0;
-			src_p3_debug4 << src_p3_debug.x(), src_p3_debug.y(), src_p3_debug.z(), 1.0;
-
-			Eigen::Vector4f src_p1_debug_dirtrans4 = trans44 * src_p1_debug4;
-			Eigen::Vector4f src_p2_debug_dirtrans4 = trans44 * src_p2_debug4;
-			Eigen::Vector4f src_p3_debug_dirtrans4 = trans44 * src_p3_debug4;
-
-			Point3D::VectorType src_p1_debug_dirtrans = src_p1_debug_dirtrans4.head<3>();
-			Point3D::VectorType src_p2_debug_dirtrans = src_p2_debug_dirtrans4.head<3>();
-			Point3D::VectorType src_p3_debug_dirtrans = src_p3_debug_dirtrans4.head<3>();
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans_dir.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_dirtrans.x(), src_p1_debug_dirtrans.y(), src_p1_debug_dirtrans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_dirtrans.x(), src_p2_debug_dirtrans.y(), src_p2_debug_dirtrans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_dirtrans.x(), src_p3_debug_dirtrans.y(), src_p3_debug_dirtrans.z());
-				std::fclose(f);
-			}
-		}
 	}
 	finish = std::chrono::high_resolution_clock::now();
 	std::cout << "calculate transform " << poseEsts.size() << " in "
@@ -484,56 +290,7 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 	/***********  verify pose  ********************/
 	float best_lcp;
 	int best_index;
-#ifdef CPU
 	{
-		start = std::chrono::high_resolution_clock::now();
-		// Build the kdtree.
-		size_t number_of_points_scene = point3d_scene.size();
-		Super4PCS::KdTree<float> kd_tree_ = Super4PCS::KdTree<float>(number_of_points_scene);
-
-		for (size_t i = 0; i < number_of_points_scene; ++i)
-		{
-			kd_tree_.add(point3d_scene[i].pos());
-		}
-		kd_tree_.finalize();
-		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "build KD tree for scene " << poseEsts.size() << " in "
-			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
-			<< " milliseconds\n";
-
-		start = std::chrono::high_resolution_clock::now();
-		std::cout << "Transforms to verify: " << poseEsts.size() << std::endl;
-		float max_score = 0;
-		int index = -1;
-
-		for (int i = 0; i < poseEsts.size() ; i++)
-		{
-			float lcp = compute_alignment_score_for_rigid_transform(
-						point3d_model,
-						point3d_scene,
-						poseEsts[i].trans44,
-						kd_tree_ );
-			poseEsts[i].lcp = lcp;
-
-			if (lcp > max_score)
-			{
-				max_score = lcp;
-				index = i;
-			}
-		}
-		best_lcp = max_score;
-		best_index = index;
-		std::cout << "best index: " << best_index << ", maximum score: " << best_lcp << std::endl;
-
-		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "verify transform " << poseEsts.size() << " in "
-			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
-			<< " milliseconds\n";
-	}
-#endif
-
-	{
-		
 		// Build the kdtree.
 		size_t number_of_points_scene = point3d_scene.size();
 		
@@ -559,13 +316,12 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 			<< " milliseconds\n";
 
+		/******* search kdtree ******/
 		int batchSize = 10000;
 		size_t number_of_points_model = point3d_model.size();
 		float* pPointModel = new float[number_of_points_model * 3 * batchSize];
 		float* pPointModelTrans = new float[number_of_points_model * 3 * batchSize];
 
-		float* d_pPointModelTransGPU;
-		cudaMalloc((void**)&d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize);
 
 		int numberOfBatch = poseEsts.size() / batchSize;
 		std::cout << "numberOfBatch = " << numberOfBatch << "\n";
@@ -583,19 +339,11 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 		flann::Matrix<float> dists(new float[batchSize * number_of_points_model * 1], batchSize* number_of_points_model, 1);
 		flann::SearchParams searchParam(8, 0, true);
 
-		int* d_indices_gpu;
-		cudaMalloc((void**)&d_indices_gpu, sizeof(int) * batchSize * number_of_points_model);
-		float* d_dists_gpu;
-		cudaMalloc((void**)&d_dists_gpu, sizeof(float) * batchSize* number_of_points_model);
-		flann::Matrix<int> indices_gpu(d_indices_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(int));
-		flann::Matrix<float> dists_gpu(d_dists_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(float));
-		flann::SearchParams searchParam_gpu;
-		searchParam_gpu.matrices_in_gpu_ram = true;
-
 		start = std::chrono::high_resolution_clock::now();
 
 		for (int k = 0; k < numberOfBatch; ++k)
-		{	/*
+		{	
+			// transform
 			for (int j = 0; j < batchSize; ++j)
 			{
 				for (int i = 0; i < number_of_points_model; i++)
@@ -606,13 +354,10 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 					pPointModelTrans[j * number_of_points_model + i * 3 + 2] = v.z();
 				}
 			}
-			*/
 			// KNN, search neighbor
-			//flann::Matrix<float> modelSet(pPointModelTrans, batchSize * number_of_points_model, 3, 3 * sizeof(float));
-			//KnnSearch.knnSearchGpu(modelSet, indices, dists, 1, searchParam);
+			flann::Matrix<float> modelSet(pPointModelTrans, batchSize * number_of_points_model, 3, 3 * sizeof(float));
+			KnnSearch.knnSearchGpu(modelSet, indices, dists, 1, searchParam);
 
-			flann::Matrix<float> modelSet_gpu(d_pPointModelTransGPU, batchSize* number_of_points_model, 3, 3 * sizeof(float));
-			KnnSearch.knnSearchGpu(modelSet_gpu, indices_gpu, dists_gpu, 1, searchParam_gpu);
 		}
 
 		delete[] pPointScene;

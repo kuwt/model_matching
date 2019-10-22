@@ -23,6 +23,7 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>modal_Matching</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.18362.0</WindowsTargetPlatformVersion>
+    <CudaToolkitCustomDir>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0</CudaToolkitCustomDir>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -53,7 +54,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 9.0.props" />
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 10.0.props" />
   </ImportGroup>
   <ImportGroup Label="Shared">
   </ImportGroup>
@@ -108,12 +109,13 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;MODAL_MATCHING_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;MODAL_MATCHING_EXPORTS;FLANN_USE_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>../../include;../../include/super4pcs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>cuda.lib;cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -150,13 +152,14 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>cuda.lib;cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\src\model_match.cuh" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
@@ -165,13 +168,19 @@
     <ClCompile Include="..\..\src\rgbd.cpp" />
     <ClCompile Include="..\..\src\stocs.cpp" />
     <ClCompile Include="..\..\src\winmain.cpp" />
+    <ClCompile Include="..\..\src\winmain_cpucs_match_one_object.cpp" />
+    <ClCompile Include="..\..\src\winmain_gpucs_match_one_object.cpp" />
+    <ClCompile Include="..\..\src\winmain_gpulesscs_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_mytest.cpp" />
     <ClCompile Include="..\..\src\winmain_preprocess.cpp" />
     <ClCompile Include="..\..\src\winmain_stocs_match_one_object.cpp" />
     <ClCompile Include="stdafx.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="..\..\src\model_match.cu" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 9.0.targets" />
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 10.0.targets" />
   </ImportGroup>
 </Project>

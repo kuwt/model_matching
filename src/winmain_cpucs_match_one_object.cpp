@@ -2,11 +2,6 @@
 #include "rgbd.hpp"
 #include "accelerators/kdtree.h"
 
-#include <cuda.h>
-#include <cuda_runtime.h>
-
-#define FLANN_USE_CUDA
-#include <flann/flann.hpp>
 
 namespace fs = std::experimental::filesystem;
 static std::string repo_path = "D:/ronaldwork/model_matching";
@@ -64,7 +59,7 @@ static float compute_alignment_score_for_rigid_transform(
 	return weighted_match / float(number_of_points_model);
 }
 
-int testBruteforceReg(std::string scene_path, std::string object_name)
+int cpucs(std::string scene_path, std::string object_name)
 {
 	std::string rgb_location = scene_path + "/rgb.png";
 	std::string depth_location = scene_path + "/depth.png";
@@ -484,7 +479,6 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 	/***********  verify pose  ********************/
 	float best_lcp;
 	int best_index;
-#ifdef CPU
 	{
 		start = std::chrono::high_resolution_clock::now();
 		// Build the kdtree.
@@ -525,103 +519,6 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 		best_index = index;
 		std::cout << "best index: " << best_index << ", maximum score: " << best_lcp << std::endl;
 
-		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "verify transform " << poseEsts.size() << " in "
-			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
-			<< " milliseconds\n";
-	}
-#endif
-
-	{
-		
-		// Build the kdtree.
-		size_t number_of_points_scene = point3d_scene.size();
-		
-		/******* build kdtree ******/
-		// Construct data structure for flann KNN
-		float* pPointScene = new float[number_of_points_scene * 3];
-		for (int i = 0; i < number_of_points_scene; i++)
-		{
-			pPointScene[i * 3 + 0] = point3d_scene[i].x();
-			pPointScene[i * 3 + 1] = point3d_scene[i].y();
-			pPointScene[i * 3 + 2] = point3d_scene[i].z();
-		}
-
-		start = std::chrono::high_resolution_clock::now();
-		// KNN, build kd-tree
-		flann::Matrix<float> dataSet(pPointScene, number_of_points_scene, 3, 3 * sizeof(float));
-		flann::KDTreeCuda3dIndexParams   cudaParams(32);
-		flann::KDTreeCuda3dIndex<::flann::L2<float>> KnnSearch(dataSet, cudaParams);
-		KnnSearch.buildIndex();
-
-		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "build KD tree for scene points " << number_of_points_scene << " in "
-			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
-			<< " milliseconds\n";
-
-		int batchSize = 10000;
-		size_t number_of_points_model = point3d_model.size();
-		float* pPointModel = new float[number_of_points_model * 3 * batchSize];
-		float* pPointModelTrans = new float[number_of_points_model * 3 * batchSize];
-
-		float* d_pPointModelTransGPU;
-		cudaMalloc((void**)&d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize);
-
-		int numberOfBatch = poseEsts.size() / batchSize;
-		std::cout << "numberOfBatch = " << numberOfBatch << "\n";
-		for (int j = 0; j < batchSize; ++j)
-		{
-			for (int i = 0; i < number_of_points_model; i++)
-			{
-				pPointModel[j * number_of_points_model + i * 3 + 0] = point3d_model[i].x();
-				pPointModel[j * number_of_points_model + i * 3 + 1] = point3d_model[i].y();
-				pPointModel[j * number_of_points_model + i * 3 + 2] = point3d_model[i].z();
-			}
-		}
-
-		flann::Matrix<int> indices(new int[batchSize * number_of_points_model * 1], batchSize* number_of_points_model, 1);
-		flann::Matrix<float> dists(new float[batchSize * number_of_points_model * 1], batchSize* number_of_points_model, 1);
-		flann::SearchParams searchParam(8, 0, true);
-
-		int* d_indices_gpu;
-		cudaMalloc((void**)&d_indices_gpu, sizeof(int) * batchSize * number_of_points_model);
-		float* d_dists_gpu;
-		cudaMalloc((void**)&d_dists_gpu, sizeof(float) * batchSize* number_of_points_model);
-		flann::Matrix<int> indices_gpu(d_indices_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(int));
-		flann::Matrix<float> dists_gpu(d_dists_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(float));
-		flann::SearchParams searchParam_gpu;
-		searchParam_gpu.matrices_in_gpu_ram = true;
-
-		start = std::chrono::high_resolution_clock::now();
-
-		for (int k = 0; k < numberOfBatch; ++k)
-		{	/*
-			for (int j = 0; j < batchSize; ++j)
-			{
-				for (int i = 0; i < number_of_points_model; i++)
-				{
-					Eigen::Vector3f v = (poseEsts[k * batchSize + j].trans44 * point3d_model[i].pos().homogeneous()).head<3>();
-					pPointModelTrans[j * number_of_points_model + i * 3 + 0] = v.x();
-					pPointModelTrans[j * number_of_points_model + i * 3 + 1] = v.y();
-					pPointModelTrans[j * number_of_points_model + i * 3 + 2] = v.z();
-				}
-			}
-			*/
-			// KNN, search neighbor
-			//flann::Matrix<float> modelSet(pPointModelTrans, batchSize * number_of_points_model, 3, 3 * sizeof(float));
-			//KnnSearch.knnSearchGpu(modelSet, indices, dists, 1, searchParam);
-
-			flann::Matrix<float> modelSet_gpu(d_pPointModelTransGPU, batchSize* number_of_points_model, 3, 3 * sizeof(float));
-			KnnSearch.knnSearchGpu(modelSet_gpu, indices_gpu, dists_gpu, 1, searchParam_gpu);
-		}
-
-		delete[] pPointScene;
-		delete[] pPointModel;
-		delete[] pPointModelTrans;
-		delete[] indices.ptr();
-		delete[] dists.ptr();
-
-		best_index = 0;
 		finish = std::chrono::high_resolution_clock::now();
 		std::cout << "verify transform " << poseEsts.size() << " in "
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001

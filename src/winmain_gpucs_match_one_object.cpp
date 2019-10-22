@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <algorithm>
 #include "rgbd.hpp"
 #include "accelerators/kdtree.h"
 
@@ -7,6 +8,7 @@
 
 #define FLANN_USE_CUDA
 #include <flann/flann.hpp>
+#include "model_match.cuh"
 
 namespace fs = std::experimental::filesystem;
 static std::string repo_path = "D:/ronaldwork/model_matching";
@@ -24,47 +26,9 @@ static float depth_scale = 1 / 10000.0f;
 
 static int image_width = 640;
 static int image_height = 480;
+int a = _MSC_VER;
 
-
-static float compute_alignment_score_for_rigid_transform(
-	std::vector<Point3D> &point3d_model,
-	std::vector<Point3D>& point3d_scene,
-	const Eigen::Ref<const Eigen::Matrix<float, 4, 4>>& mat,
-	Super4PCS::KdTree<float> &kd_tree_)
-{
-	// We allow factor 2 scaling in the normalization.
-	const float epsilon = distance_threshold;
-	float weighted_match = 0;
-
-	const size_t number_of_points_model = point3d_model.size();
-	const float sq_eps = epsilon * epsilon;
-
-	for (int i = 0; i < number_of_points_model; ++i)
-	{
-		// Use the kdtree to get the nearest neighbor
-		Super4PCS::KdTree<float>::Index resId =
-			kd_tree_.doQueryRestrictedClosestIndex(
-			(mat * point3d_model[i].pos().homogeneous()).head<3>(),
-				sq_eps);
-
-		if (resId != Super4PCS::KdTree<float>::invalidIndex())
-		{
-			Point3D::VectorType n_q = mat.block<3, 3>(0, 0) * point3d_model[i].normal();
-
-			float angle_n = std::acos(point3d_scene[resId].normal().dot(n_q)) * 180 / M_PI;
-
-			// angle_n = std::min(angle_n, float(fabs(180-angle_n)));
-
-			if (angle_n < 30)
-			{
-				weighted_match += point3d_scene[resId].class_probability();
-			}
-		}
-	}
-	return weighted_match / float(number_of_points_model);
-}
-
-int testBruteforceReg(std::string scene_path, std::string object_name)
+int gpucs(std::string scene_path, std::string object_name)
 {
 	std::string rgb_location = scene_path + "/rgb.png";
 	std::string depth_location = scene_path + "/depth.png";
@@ -187,10 +151,6 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 				e.ppf[1] = ppf[1];
 				e.ppf[2] = ppf[2];
 				e.ppf[3] = ppf[3];
-				//e.srcCoord[0] = p1;
-				//e.srcCoord[1] = p2;
-				//e.tarCoord[0] = point3d_model[e.tarId[0]];
-				//e.tarCoord[1] = point3d_model[e.tarId[1]];
 				poseEsts.push_back(e);
 			}
 		}
@@ -324,158 +284,6 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 		trans44 = trans44TslateFromOriginToTar * Trans44RotFromTarToXaxisTp * trans44Rot * trans44TranslateFromSrcToOrigin;
 
 		poseEsts.at(i).trans44 = trans44;
-		// debug
-		if (0)
-		{
-			Point3D::VectorType src_p1_debug = src_p1;
-			Point3D::VectorType src_p1_to_p2 = (src_p2 - src_p1);
-			src_p1_to_p2.normalize();
-			Point3D::VectorType src_p2_debug = src_p1 + src_p1_to_p2;
-			Point3D::VectorType src_p3_debug = src_p1 + src_n1;
-
-			Point3D::VectorType tar_p1_debug = tar_p1;
-			Point3D::VectorType tar_p1_to_p2 = (tar_p2 - tar_p1);
-			tar_p1_to_p2.normalize();
-			Point3D::VectorType tar_p2_debug = tar_p1 + tar_p1_to_p2;
-			Point3D::VectorType tar_p3_debug = tar_p1 + tar_n1;
-
-			{
-				std::string path;
-				path = debug_path + "/srcPts.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n",src_p1_debug.x(), src_p1_debug.y(),src_p1_debug.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug.x(), src_p2_debug.y(), src_p2_debug.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug.x(), src_p3_debug.y(), src_p3_debug.z());
-				
-				std::fclose(f);
-			}
-
-			{
-				std::string path;
-				path = debug_path + "/tarPts.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", tar_p1_debug.x(), tar_p1_debug.y(), tar_p1_debug.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p2_debug.x(), tar_p2_debug.y(), tar_p2_debug.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p3_debug.x(), tar_p3_debug.y(), tar_p3_debug.z());
-
-				std::fclose(f);
-			}
-
-			Point3D::VectorType src_p1_debug_trans;
-			Point3D::VectorType src_p2_debug_trans;
-			Point3D::VectorType src_p3_debug_trans;
-
-			src_p1_debug_trans = src_p1_debug + tslateFromSrcToOrigin;
-			src_p2_debug_trans = src_p2_debug + tslateFromSrcToOrigin;
-			src_p3_debug_trans = src_p3_debug + tslateFromSrcToOrigin;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-			src_p1_debug_trans = rotation * src_p1_debug_trans;
-			src_p2_debug_trans = rotation * src_p2_debug_trans;
-			src_p3_debug_trans = rotation * src_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans2.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-			src_p1_debug_trans = rotation_tar_normal_to_x_axis_transpose * src_p1_debug_trans;
-			src_p2_debug_trans = rotation_tar_normal_to_x_axis_transpose * src_p2_debug_trans;
-			src_p3_debug_trans = rotation_tar_normal_to_x_axis_transpose * src_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans3.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-			src_p1_debug_trans = tslateFromOriginToTar + src_p1_debug_trans;
-			src_p2_debug_trans = tslateFromOriginToTar + src_p2_debug_trans;
-			src_p3_debug_trans = tslateFromOriginToTar + src_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans4.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_trans.x(), src_p1_debug_trans.y(), src_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_trans.x(), src_p2_debug_trans.y(), src_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_trans.x(), src_p3_debug_trans.y(), src_p3_debug_trans.z());
-				std::fclose(f);
-			}
-
-			Point3D::VectorType tar_p1_debug_trans;
-			Point3D::VectorType tar_p2_debug_trans;
-			Point3D::VectorType tar_p3_debug_trans;
-
-			tar_p1_debug_trans = tar_p1_debug - tslateFromOriginToTar;
-			tar_p2_debug_trans = tar_p2_debug - tslateFromOriginToTar;
-			tar_p3_debug_trans = tar_p3_debug - tslateFromOriginToTar;
-			{
-				std::string path;
-				path = debug_path + "/tarPts_trans.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", tar_p1_debug_trans.x(), tar_p1_debug_trans.y(), tar_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p2_debug_trans.x(), tar_p2_debug_trans.y(), tar_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p3_debug_trans.x(), tar_p3_debug_trans.y(), tar_p3_debug_trans.z());
-
-				std::fclose(f);
-			}
-			tar_p1_debug_trans = rotation_tar_normal_to_x_axis * tar_p1_debug_trans;
-			tar_p2_debug_trans = rotation_tar_normal_to_x_axis * tar_p2_debug_trans;
-			tar_p3_debug_trans = rotation_tar_normal_to_x_axis * tar_p3_debug_trans;
-			{
-				std::string path;
-				path = debug_path + "/tarPts_trans2.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", tar_p1_debug_trans.x(), tar_p1_debug_trans.y(), tar_p1_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p2_debug_trans.x(), tar_p2_debug_trans.y(), tar_p2_debug_trans.z());
-				std::fprintf(f, "v %f %f %f \n", tar_p3_debug_trans.x(), tar_p3_debug_trans.y(), tar_p3_debug_trans.z());
-
-				std::fclose(f);
-			}
-
-			Eigen::Vector4f src_p1_debug4, src_p2_debug4, src_p3_debug4;
-			src_p1_debug4 << src_p1_debug.x(), src_p1_debug.y(), src_p1_debug.z(), 1.0;
-			src_p2_debug4 << src_p2_debug.x(), src_p2_debug.y(), src_p2_debug.z(), 1.0;
-			src_p3_debug4 << src_p3_debug.x(), src_p3_debug.y(), src_p3_debug.z(), 1.0;
-
-			Eigen::Vector4f src_p1_debug_dirtrans4 = trans44 * src_p1_debug4;
-			Eigen::Vector4f src_p2_debug_dirtrans4 = trans44 * src_p2_debug4;
-			Eigen::Vector4f src_p3_debug_dirtrans4 = trans44 * src_p3_debug4;
-
-			Point3D::VectorType src_p1_debug_dirtrans = src_p1_debug_dirtrans4.head<3>();
-			Point3D::VectorType src_p2_debug_dirtrans = src_p2_debug_dirtrans4.head<3>();
-			Point3D::VectorType src_p3_debug_dirtrans = src_p3_debug_dirtrans4.head<3>();
-			{
-				std::string path;
-				path = debug_path + "/srcPts_trans_dir.obj";
-				std::FILE* f = std::fopen(path.c_str(), "w");
-
-				std::fprintf(f, "v %f %f %f \n", src_p1_debug_dirtrans.x(), src_p1_debug_dirtrans.y(), src_p1_debug_dirtrans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p2_debug_dirtrans.x(), src_p2_debug_dirtrans.y(), src_p2_debug_dirtrans.z());
-				std::fprintf(f, "v %f %f %f \n", src_p3_debug_dirtrans.x(), src_p3_debug_dirtrans.y(), src_p3_debug_dirtrans.z());
-				std::fclose(f);
-			}
-		}
 	}
 	finish = std::chrono::high_resolution_clock::now();
 	std::cout << "calculate transform " << poseEsts.size() << " in "
@@ -484,59 +292,58 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 	/***********  verify pose  ********************/
 	float best_lcp;
 	int best_index;
-#ifdef CPU
 	{
-		start = std::chrono::high_resolution_clock::now();
-		// Build the kdtree.
-		size_t number_of_points_scene = point3d_scene.size();
-		Super4PCS::KdTree<float> kd_tree_ = Super4PCS::KdTree<float>(number_of_points_scene);
+		/**********
+		prebuilt 
+		************/
+		int batchSize = 1;
+		size_t number_of_points_model = point3d_model.size();
+		float* pPointModel = new float[number_of_points_model * 3 * batchSize];
+		
+		float* d_pPointModelGPU;
+		cudaMalloc((void**)&d_pPointModelGPU, sizeof(float)* number_of_points_model * 3 * batchSize);
+		float* d_pPointModelTransGPU;
+		cudaMalloc((void**)&d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize);
 
-		for (size_t i = 0; i < number_of_points_scene; ++i)
+		float* pPoses = new float[16 * batchSize];
+
+		float* d_pPosesGPU;
+		cudaMalloc((void**)&d_pPosesGPU, sizeof(float)* batchSize * 16);
+
+		int* d_ppointsValidsGPU;
+		cudaMalloc((void**)&d_ppointsValidsGPU, sizeof(int)* number_of_points_model * batchSize);
+
+		float* d_pLCPsGPU;
+		cudaMalloc((void**)&d_pLCPsGPU, sizeof(float)* batchSize);
+
+		/********** assign points ***********/
+		for (int j = 0; j < batchSize; ++j)
 		{
-			kd_tree_.add(point3d_scene[i].pos());
-		}
-		kd_tree_.finalize();
-		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "build KD tree for scene " << poseEsts.size() << " in "
-			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
-			<< " milliseconds\n";
-
-		start = std::chrono::high_resolution_clock::now();
-		std::cout << "Transforms to verify: " << poseEsts.size() << std::endl;
-		float max_score = 0;
-		int index = -1;
-
-		for (int i = 0; i < poseEsts.size() ; i++)
-		{
-			float lcp = compute_alignment_score_for_rigid_transform(
-						point3d_model,
-						point3d_scene,
-						poseEsts[i].trans44,
-						kd_tree_ );
-			poseEsts[i].lcp = lcp;
-
-			if (lcp > max_score)
+			for (int i = 0; i < number_of_points_model; i++)
 			{
-				max_score = lcp;
-				index = i;
+				pPointModel[j * number_of_points_model + i * 3 + 0] = point3d_model[i].x();
+				pPointModel[j * number_of_points_model + i * 3 + 1] = point3d_model[i].y();
+				pPointModel[j * number_of_points_model + i * 3 + 2] = point3d_model[i].z();
 			}
 		}
-		best_lcp = max_score;
-		best_index = index;
-		std::cout << "best index: " << best_index << ", maximum score: " << best_lcp << std::endl;
+		cudaMemcpy(d_pPointModelGPU, pPointModel, sizeof(float)* number_of_points_model * batchSize * 3, cudaMemcpyHostToDevice);
 
-		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "verify transform " << poseEsts.size() << " in "
-			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
-			<< " milliseconds\n";
-	}
-#endif
+		int* d_indices_gpu;
+		cudaMalloc((void**)&d_indices_gpu, sizeof(int) * batchSize * number_of_points_model);
+		float* d_dists_gpu;
+		cudaMalloc((void**)&d_dists_gpu, sizeof(float) * batchSize* number_of_points_model);
 
-	{
-		
+		flann::Matrix<int> indices_gpu(d_indices_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(int));
+		flann::Matrix<float> dists_gpu(d_dists_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(float));
+		flann::SearchParams searchParam_gpu;
+		searchParam_gpu.matrices_in_gpu_ram = true;
+
+		/**********
+		runtime built
+		************/
 		// Build the kdtree.
 		size_t number_of_points_scene = point3d_scene.size();
-		
+
 		/******* build kdtree ******/
 		// Construct data structure for flann KNN
 		float* pPointScene = new float[number_of_points_scene * 3];
@@ -559,73 +366,202 @@ int testBruteforceReg(std::string scene_path, std::string object_name)
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 			<< " milliseconds\n";
 
-		int batchSize = 10000;
-		size_t number_of_points_model = point3d_model.size();
-		float* pPointModel = new float[number_of_points_model * 3 * batchSize];
-		float* pPointModelTrans = new float[number_of_points_model * 3 * batchSize];
-
-		float* d_pPointModelTransGPU;
-		cudaMalloc((void**)&d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize);
-
 		int numberOfBatch = poseEsts.size() / batchSize;
+		numberOfBatch = 1;
 		std::cout << "numberOfBatch = " << numberOfBatch << "\n";
-		for (int j = 0; j < batchSize; ++j)
-		{
-			for (int i = 0; i < number_of_points_model; i++)
-			{
-				pPointModel[j * number_of_points_model + i * 3 + 0] = point3d_model[i].x();
-				pPointModel[j * number_of_points_model + i * 3 + 1] = point3d_model[i].y();
-				pPointModel[j * number_of_points_model + i * 3 + 2] = point3d_model[i].z();
-			}
-		}
 
-		flann::Matrix<int> indices(new int[batchSize * number_of_points_model * 1], batchSize* number_of_points_model, 1);
-		flann::Matrix<float> dists(new float[batchSize * number_of_points_model * 1], batchSize* number_of_points_model, 1);
-		flann::SearchParams searchParam(8, 0, true);
+		float* pLCPs = new float[numberOfBatch * batchSize];
+		memset(pLCPs, 0, sizeof(float) * numberOfBatch * batchSize);
 
-		int* d_indices_gpu;
-		cudaMalloc((void**)&d_indices_gpu, sizeof(int) * batchSize * number_of_points_model);
-		float* d_dists_gpu;
-		cudaMalloc((void**)&d_dists_gpu, sizeof(float) * batchSize* number_of_points_model);
-		flann::Matrix<int> indices_gpu(d_indices_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(int));
-		flann::Matrix<float> dists_gpu(d_dists_gpu, batchSize * number_of_points_model, 1, 1 * sizeof(float));
-		flann::SearchParams searchParam_gpu;
-		searchParam_gpu.matrices_in_gpu_ram = true;
-
+		/**********
+		runtime
+		************/
+		int debug = 1;
+		/********** search kdtree ************/
 		start = std::chrono::high_resolution_clock::now();
-
 		for (int k = 0; k < numberOfBatch; ++k)
-		{	/*
+		{	
+			// assign pose to GPU
 			for (int j = 0; j < batchSize; ++j)
 			{
-				for (int i = 0; i < number_of_points_model; i++)
+				for (int i = 0; i < 16; i++)
 				{
-					Eigen::Vector3f v = (poseEsts[k * batchSize + j].trans44 * point3d_model[i].pos().homogeneous()).head<3>();
-					pPointModelTrans[j * number_of_points_model + i * 3 + 0] = v.x();
-					pPointModelTrans[j * number_of_points_model + i * 3 + 1] = v.y();
-					pPointModelTrans[j * number_of_points_model + i * 3 + 2] = v.z();
+					int row = i / 4;
+					int col = i % 4;
+					pPoses[j * 16 + i] = poseEsts[k * batchSize + j].trans44(row, col);
 				}
 			}
-			*/
-			// KNN, search neighbor
-			//flann::Matrix<float> modelSet(pPointModelTrans, batchSize * number_of_points_model, 3, 3 * sizeof(float));
-			//KnnSearch.knnSearchGpu(modelSet, indices, dists, 1, searchParam);
+			cudaMemcpy(d_pPosesGPU, pPoses, sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
 
+			 TransformPointsCU(
+				d_pPointModelGPU,		
+				number_of_points_model,
+				batchSize,
+				d_pPosesGPU,
+				d_pPointModelTransGPU  
+				);
+
+
+			 if (debug == 1)
+			 {
+				 std::string path;
+				 path = debug_path + "/model.obj";
+				 std::FILE* f = std::fopen(path.c_str(), "w");
+
+				 for (int i = 0; i < number_of_points_model; ++i)
+				 {
+					 std::fprintf(f, "v %f %f %f \n", pPointModel[i * 3 + 0], pPointModel[i * 3 + 1], pPointModel[i * 3 + 2]);
+				 }
+				 std::fclose(f);
+			 }
+			 if (debug == 1)
+			 {
+				 float* pPointModelTransGPU_DEBUG = new float[number_of_points_model * 3 * batchSize];
+				 cudaMemcpy(pPointModelTransGPU_DEBUG, d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize, cudaMemcpyDeviceToHost);
+			
+				 std::string path;
+				 path = debug_path + "/trans.obj";
+				 std::FILE* f = std::fopen(path.c_str(), "w");
+
+				 for (int i = 0; i < number_of_points_model * batchSize; ++i)
+				 {
+					 std::fprintf(f, "v %f %f %f \n", pPointModelTransGPU_DEBUG[i * 3 + 0], pPointModelTransGPU_DEBUG[i * 3 + 1], pPointModelTransGPU_DEBUG[i * 3 + 2]);
+				 }
+				 std::fclose(f);
+				
+				 delete [] pPointModelTransGPU_DEBUG;
+
+			 }
+
+			 // TransformPoints Normally for debug
+			 if (debug == 1)
+			 {
+				 std::string path;
+				 path = debug_path + "/transDebug.obj";
+				 std::FILE* f = std::fopen(path.c_str(), "w");
+				 for (int i = 0; i < number_of_points_model; ++i)
+				 {
+					 Point3D::VectorType tp = (poseEsts[k * batchSize + 0].trans44 * point3d_model[i].pos().homogeneous()).head<3>();
+					 std::fprintf(f, "v %f %f %f \n", tp[0], tp[1], tp[2]);
+				 }
+				 std::fclose(f);
+			 }
+
+			 if (debug == 1)
+			 {
+				 std::string path;
+				 path = debug_path + "/SceneD.obj";
+				 std::FILE* f = std::fopen(path.c_str(), "w");
+				 for (int i = 0; i < number_of_points_scene; ++i)
+				 {
+					 std::fprintf(f, "v %f %f %f \n", pPointScene[i * 3 + 0], pPointScene[i * 3 + 1], pPointScene[i * 3 + 2]);
+				 }
+				 std::fclose(f);
+			 }
+
+			// KNN, search neighbor
 			flann::Matrix<float> modelSet_gpu(d_pPointModelTransGPU, batchSize* number_of_points_model, 3, 3 * sizeof(float));
 			KnnSearch.knnSearchGpu(modelSet_gpu, indices_gpu, dists_gpu, 1, searchParam_gpu);
+			if (debug == 1)
+			{
+				{
+					int* pindices_gpu_DEBUG = new int[number_of_points_model * batchSize];
+					cudaMemcpy(pindices_gpu_DEBUG, d_indices_gpu, sizeof(int)* batchSize * number_of_points_model, cudaMemcpyDeviceToHost);
+					std::string path;
+					path = debug_path + "/indices.txt";
+					std::FILE* f = std::fopen(path.c_str(), "w");
+
+					for (int i = 0; i < number_of_points_model * batchSize; ++i)
+					{
+						std::fprintf(f, "%d\n", pindices_gpu_DEBUG[i]);
+					}
+					std::fclose(f);
+				}
+				{
+					float* pdists_gpu_DEBUG = new float[number_of_points_model * batchSize];
+					cudaMemcpy(pdists_gpu_DEBUG, d_dists_gpu, sizeof(float)* batchSize * number_of_points_model, cudaMemcpyDeviceToHost);
+		
+					std::string path;
+					path = debug_path + "/dists.txt";
+					std::FILE* f = std::fopen(path.c_str(), "w");
+
+					for (int i = 0; i < number_of_points_model * batchSize; ++i)
+					{
+						std::fprintf(f, "%f\n", pdists_gpu_DEBUG[i]);
+					}
+					std::fclose(f);
+				}
+			}
+
+			float distThd = distance_threshold;
+			 verifyPointsNearCU(
+				d_dists_gpu,        
+				number_of_points_model,
+				batchSize,
+				distThd,
+			    d_ppointsValidsGPU);
+
+			 if (debug == 1)
+			 {
+				 int* ppointsValidsGPU_DEBUG = new int[number_of_points_model * batchSize];
+				 cudaMemcpy(ppointsValidsGPU_DEBUG, d_ppointsValidsGPU, sizeof(int)* number_of_points_model * batchSize, cudaMemcpyDeviceToHost);
+
+				std::string path;
+				path = debug_path + "/isValid.txt";
+				std::FILE* f = std::fopen(path.c_str(), "w");
+
+				for (int i = 0; i < number_of_points_model; ++i)
+				{
+					std::fprintf(f, "%d\n", ppointsValidsGPU_DEBUG[i]);
+				}
+				std::fclose(f);
+			 }
+
+			 computePoseLCP_CU(
+				d_ppointsValidsGPU,
+				number_of_points_model,
+				batchSize,
+				 d_pLCPsGPU);
+
+			 cudaMemcpy(pLCPs + (k * batchSize), d_pLCPsGPU, sizeof(float) * batchSize, cudaMemcpyDeviceToHost);
+			 
 		}
+		float* maxAddr = std::max_element(pLCPs, pLCPs + (numberOfBatch * batchSize));
+		int maxLCPIdx = std::distance(pLCPs, maxAddr);
+		std::cout << "max LCP at: " << maxLCPIdx << " , LCP = " << pLCPs[maxLCPIdx] << '\n';
 
-		delete[] pPointScene;
-		delete[] pPointModel;
-		delete[] pPointModelTrans;
-		delete[] indices.ptr();
-		delete[] dists.ptr();
-
-		best_index = 0;
+		best_index = maxLCPIdx;
 		finish = std::chrono::high_resolution_clock::now();
 		std::cout << "verify transform " << poseEsts.size() << " in "
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 			<< " milliseconds\n";
+
+		if (debug == 1)
+		{
+			std::string path;
+			path = debug_path + "/LCP.txt";
+			std::FILE* f = std::fopen(path.c_str(), "w");
+
+			for (int i = 0; i < numberOfBatch * batchSize; ++i)
+			{
+				std::fprintf(f, "%f\n", pLCPs[i]);
+			}
+			std::fclose(f);
+		}
+
+		delete[] pPointScene;
+		/**********
+		final free
+		************/
+		delete[] pPoses;
+		delete[] pPointModel;
+		delete[] pLCPs;
+		cudaFree(d_pPointModelGPU);
+		cudaFree(d_pPointModelTransGPU);
+		cudaFree(d_indices_gpu);
+		cudaFree(d_dists_gpu);
+		cudaFree(d_pPosesGPU);
+		cudaFree(d_pLCPsGPU);
 	}
 
 	/***********  show best pose  ********************/
