@@ -298,8 +298,8 @@ int gpucs(std::string scene_path, std::string object_name)
 	//poseEsts = fakeposes;
 #endif
 	/***********  verify pose  ********************/
-	float best_lcp;
-	int best_index;
+	float best_lcp = 0;
+	int best_index = 0;
 	{
 		/**********
 		prebuilt 
@@ -373,6 +373,11 @@ int gpucs(std::string scene_path, std::string object_name)
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 			<< " milliseconds\n";
 
+		float* d_pPointSceneGPU;
+		cudaMalloc((void**)&d_pPointSceneGPU, sizeof(float)* number_of_points_scene * 3);
+		cudaMemcpy(d_pPointSceneGPU, pPointScene, sizeof(float)* number_of_points_scene * 3, cudaMemcpyHostToDevice);
+
+
 		int numberOfBatch = poseEsts.size() / batchSize;
 #ifdef singleTest
 		numberOfBatch = 1;
@@ -385,245 +390,264 @@ int gpucs(std::string scene_path, std::string object_name)
 		/**********
 		runtime
 		************/
-
 		/********** search kdtree ************/
-		start = std::chrono::high_resolution_clock::now();
-		for (int k = 0; k < numberOfBatch; ++k)
-		{	
-			// assign pose to GPU
-			for (int j = 0; j < batchSize; ++j)
+		//for (int mm = 0; mm < 10000; ++mm)
+		{
+			//getchar();
+			start = std::chrono::high_resolution_clock::now();
+			for (int k = 0; k < numberOfBatch; ++k)
 			{
-				for (int i = 0; i < 16; i++)
+				
+				// assign pose to GPU
+				for (int j = 0; j < batchSize; ++j)
 				{
-					int row = i / 4;
-					int col = i % 4;
-					pPoses[j * 16 + i] = poseEsts[k * batchSize + j].trans44(row, col);
+					for (int i = 0; i < 16; i++)
+					{
+						int row = i / 4;
+						int col = i % 4;
+						pPoses[j * 16 + i] = poseEsts[k * batchSize + j].trans44(row, col);
+					}
 				}
-			}
-			cudaMemcpy(d_pPosesGPU, pPoses, sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
-
-			 TransformPointsCU(
-				d_pPointModelGPU,		
-				number_of_points_model,
-				batchSize,
-				d_pPosesGPU,
-				d_pPointModelTransGPU  
+				cudaMemcpy(d_pPosesGPU, pPoses, sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
+				
+				TransformPointsCU(
+					d_pPointModelGPU,
+					number_of_points_model,
+					batchSize,
+					d_pPosesGPU,
+					d_pPointModelTransGPU
 				);
 
-
-			 if (debug_flag == 1)
-			 {
-				 std::string path;
-				 path = debug_path + "/model.obj";
-				 std::FILE* f = std::fopen(path.c_str(), "w");
-
-				 for (int i = 0; i < number_of_points_model; ++i)
-				 {
-					 std::fprintf(f, "v %f %f %f \n", pPointModel[i * 3 + 0], pPointModel[i * 3 + 1], pPointModel[i * 3 + 2]);
-				 }
-				 std::fclose(f);
-			 }
-			 if (debug_flag == 1)
-			 {
-				 float* pPointModelTransGPU_DEBUG = new float[number_of_points_model * 3 * batchSize];
-				 cudaMemcpy(pPointModelTransGPU_DEBUG, d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize, cudaMemcpyDeviceToHost);
-			
-				 std::string path;
-				 path = debug_path + "/trans.obj";
-				 std::FILE* f = std::fopen(path.c_str(), "w");
-
-				 for (int i = 0; i < number_of_points_model * batchSize; ++i)
-				 {
-					 std::fprintf(f, "v %f %f %f \n", pPointModelTransGPU_DEBUG[i * 3 + 0], pPointModelTransGPU_DEBUG[i * 3 + 1], pPointModelTransGPU_DEBUG[i * 3 + 2]);
-				 }
-				 std::fclose(f);
-				
-				 delete [] pPointModelTransGPU_DEBUG;
-
-			 }
-
-			 /*
-			 // TransformPoints Normally for debug
-			 if (debug_flag == 1)
-			 {
-				 std::string path;
-				 path = debug_path + "/transDebug.obj";
-				 std::FILE* f = std::fopen(path.c_str(), "w");
-				 for (int i = 0; i < number_of_points_model; ++i)
-				 {
-					 Point3D::VectorType tp = (poseEsts[k * batchSize + 0].trans44 * point3d_model[i].pos().homogeneous()).head<3>();
-					 std::fprintf(f, "v %f %f %f \n", tp[0], tp[1], tp[2]);
-				 }
-				 std::fclose(f);
-			 }
-
-			 if (debug_flag == 1)
-			 {
-				 std::string path;
-				 path = debug_path + "/SceneD.obj";
-				 std::FILE* f = std::fopen(path.c_str(), "w");
-				 for (int i = 0; i < number_of_points_scene; ++i)
-				 {
-					 std::fprintf(f, "v %f %f %f \n", pPointScene[i * 3 + 0], pPointScene[i * 3 + 1], pPointScene[i * 3 + 2]);
-				 }
-				 std::fclose(f);
-			 }
-			 */
-			 /*
-			// KNN, search neighbor
-			 if (debug_flag == 1)
-			 {
-				 float* pPointScene_2 = new float[number_of_points_scene * 3];
-				 for (int i = 0; i < number_of_points_scene; ++i)
-				 {
-					 pPointScene_2[i * 3 + 0] = pPointScene[i * 3 + 0] + 0.001;
-					 pPointScene_2[i * 3 + 1] = pPointScene[i * 3 + 1] + 0.001;
-					 pPointScene_2[i * 3 + 2] = pPointScene[i * 3 + 2] + 0.001;
-				 }
-
-				 flann::Matrix<float> dataSet(pPointScene_2, number_of_points_scene, 3, 3 * sizeof(float));
-				 flann::Matrix<int> indices(new int[dataSet.rows], dataSet.rows, 1);
-				 flann::Matrix<float> dists(new float[dataSet.rows], dataSet.rows, 1);
-				 flann::SearchParams searchParam(8, 0, true);
-				 KnnSearch.knnSearchGpu(dataSet, indices, dists, 1, searchParam);
+				/*
+				 if (debug_flag == 1)
 				 {
 					 std::string path;
-					 path = debug_path + "/indices_scene_gput.txt";
+					 path = debug_path + "/model.obj";
 					 std::FILE* f = std::fopen(path.c_str(), "w");
 
-					 for (int i = 0; i < number_of_points_scene; ++i)
+					 for (int i = 0; i < number_of_points_model; ++i)
 					 {
-						 std::fprintf(f, "%d\n", indices.ptr()[i]);
+						 std::fprintf(f, "v %f %f %f \n", pPointModel[i * 3 + 0], pPointModel[i * 3 + 1], pPointModel[i * 3 + 2]);
 					 }
 					 std::fclose(f);
 				 }
+				 if (debug_flag == 1)
 				 {
-					 std::string path;
-					 path = debug_path + "/dists_scene_gput.txt";
-					 std::FILE* f = std::fopen(path.c_str(), "w");
+					 float* pPointModelTransGPU_DEBUG = new float[number_of_points_model * 3 * batchSize];
+					 cudaMemcpy(pPointModelTransGPU_DEBUG, d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize, cudaMemcpyDeviceToHost);
 
-					 for (int i = 0; i < number_of_points_scene; ++i)
-					 {
-						 std::fprintf(f, "%f\n", dists.ptr()[i]);
-					 }
-					 std::fclose(f);
-				 }
-				 delete[] indices.ptr();
-				 delete[] dists.ptr();
-				 delete[] pPointScene_2;
-			 }
-
-			 if (debug_flag == 1)
-			 {
-				 float* pPointModelTransGPU_2 = new float[number_of_points_model * 3 * batchSize];
-				 cudaMemcpy(pPointModelTransGPU_2, d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize, cudaMemcpyDeviceToHost);
-				
-				 flann::Matrix<float> dataSet(pPointModelTransGPU_2, number_of_points_model  * batchSize, 3, 3 * sizeof(float));
-				 flann::Matrix<int> indices(new int[dataSet.rows], dataSet.rows, 1);
-				 flann::Matrix<float> dists(new float[dataSet.rows], dataSet.rows, 1);
-				 flann::SearchParams searchParam(8, 0, true);
-				 KnnSearch.knnSearchGpu(dataSet, indices, dists, 1, searchParam);
-				 {
 					 std::string path;
-					 path = debug_path + "/indices_gput.txt";
+					 path = debug_path + "/trans.obj";
 					 std::FILE* f = std::fopen(path.c_str(), "w");
 
 					 for (int i = 0; i < number_of_points_model * batchSize; ++i)
 					 {
-						 std::fprintf(f, "%d\n", indices.ptr()[i]);
+						 std::fprintf(f, "v %f %f %f \n", pPointModelTransGPU_DEBUG[i * 3 + 0], pPointModelTransGPU_DEBUG[i * 3 + 1], pPointModelTransGPU_DEBUG[i * 3 + 2]);
 					 }
 					 std::fclose(f);
+
+					 delete [] pPointModelTransGPU_DEBUG;
+
 				 }
-				 {	
+				 */
+				 /*
+				 // TransformPoints Normally for debug
+				 if (debug_flag == 1)
+				 {
 					 std::string path;
-					 path = debug_path + "/dists_gput.txt";
+					 path = debug_path + "/transDebug.obj";
 					 std::FILE* f = std::fopen(path.c_str(), "w");
-
-					 for (int i = 0; i < number_of_points_model * batchSize; ++i)
+					 for (int i = 0; i < number_of_points_model; ++i)
 					 {
-						 std::fprintf(f, "%f\n", dists.ptr()[i]);
+						 Point3D::VectorType tp = (poseEsts[k * batchSize + 0].trans44 * point3d_model[i].pos().homogeneous()).head<3>();
+						 std::fprintf(f, "v %f %f %f \n", tp[0], tp[1], tp[2]);
 					 }
 					 std::fclose(f);
 				 }
-				 delete[] indices.ptr();
-				 delete[] dists.ptr();
-			 }
-			 */
-			flann::Matrix<float> modelSet_gpu(d_pPointModelTransGPU, batchSize* number_of_points_model, 3, 3 * sizeof(float));
-			KnnSearch.knnSearchGpu(modelSet_gpu, indices_gpu, dists_gpu, 1, searchParam_gpu);
-			if (debug_flag == 1)
-			{
+
+				 if (debug_flag == 1)
+				 {
+					 std::string path;
+					 path = debug_path + "/SceneD.obj";
+					 std::FILE* f = std::fopen(path.c_str(), "w");
+					 for (int i = 0; i < number_of_points_scene; ++i)
+					 {
+						 std::fprintf(f, "v %f %f %f \n", pPointScene[i * 3 + 0], pPointScene[i * 3 + 1], pPointScene[i * 3 + 2]);
+					 }
+					 std::fclose(f);
+				 }
+				 */
+				 /*
+				// KNN, search neighbor
+				 if (debug_flag == 1)
+				 {
+					 float* pPointScene_2 = new float[number_of_points_scene * 3];
+					 for (int i = 0; i < number_of_points_scene; ++i)
+					 {
+						 pPointScene_2[i * 3 + 0] = pPointScene[i * 3 + 0] + 0.001;
+						 pPointScene_2[i * 3 + 1] = pPointScene[i * 3 + 1] + 0.001;
+						 pPointScene_2[i * 3 + 2] = pPointScene[i * 3 + 2] + 0.001;
+					 }
+
+					 flann::Matrix<float> dataSet(pPointScene_2, number_of_points_scene, 3, 3 * sizeof(float));
+					 flann::Matrix<int> indices(new int[dataSet.rows], dataSet.rows, 1);
+					 flann::Matrix<float> dists(new float[dataSet.rows], dataSet.rows, 1);
+					 flann::SearchParams searchParam(8, 0, true);
+					 KnnSearch.knnSearchGpu(dataSet, indices, dists, 1, searchParam);
+					 {
+						 std::string path;
+						 path = debug_path + "/indices_scene_gput.txt";
+						 std::FILE* f = std::fopen(path.c_str(), "w");
+
+						 for (int i = 0; i < number_of_points_scene; ++i)
+						 {
+							 std::fprintf(f, "%d\n", indices.ptr()[i]);
+						 }
+						 std::fclose(f);
+					 }
+					 {
+						 std::string path;
+						 path = debug_path + "/dists_scene_gput.txt";
+						 std::FILE* f = std::fopen(path.c_str(), "w");
+
+						 for (int i = 0; i < number_of_points_scene; ++i)
+						 {
+							 std::fprintf(f, "%f\n", dists.ptr()[i]);
+						 }
+						 std::fclose(f);
+					 }
+					 delete[] indices.ptr();
+					 delete[] dists.ptr();
+					 delete[] pPointScene_2;
+				 }
+
+				 if (debug_flag == 1)
+				 {
+					 float* pPointModelTransGPU_2 = new float[number_of_points_model * 3 * batchSize];
+					 cudaMemcpy(pPointModelTransGPU_2, d_pPointModelTransGPU, sizeof(float)* number_of_points_model * 3 * batchSize, cudaMemcpyDeviceToHost);
+
+					 flann::Matrix<float> dataSet(pPointModelTransGPU_2, number_of_points_model  * batchSize, 3, 3 * sizeof(float));
+					 flann::Matrix<int> indices(new int[dataSet.rows], dataSet.rows, 1);
+					 flann::Matrix<float> dists(new float[dataSet.rows], dataSet.rows, 1);
+					 flann::SearchParams searchParam(8, 0, true);
+					 KnnSearch.knnSearchGpu(dataSet, indices, dists, 1, searchParam);
+					 {
+						 std::string path;
+						 path = debug_path + "/indices_gput.txt";
+						 std::FILE* f = std::fopen(path.c_str(), "w");
+
+						 for (int i = 0; i < number_of_points_model * batchSize; ++i)
+						 {
+							 std::fprintf(f, "%d\n", indices.ptr()[i]);
+						 }
+						 std::fclose(f);
+					 }
+					 {
+						 std::string path;
+						 path = debug_path + "/dists_gput.txt";
+						 std::FILE* f = std::fopen(path.c_str(), "w");
+
+						 for (int i = 0; i < number_of_points_model * batchSize; ++i)
+						 {
+							 std::fprintf(f, "%f\n", dists.ptr()[i]);
+						 }
+						 std::fclose(f);
+					 }
+					 delete[] indices.ptr();
+					 delete[] dists.ptr();
+				 }
+				 */
+
+				/*
+				flann::Matrix<float> modelSet_gpu(d_pPointModelTransGPU, batchSize* number_of_points_model, 3, 3 * sizeof(float));
+				KnnSearch.knnSearchGpu(modelSet_gpu, indices_gpu, dists_gpu, 1, searchParam_gpu);
+				if (debug_flag == 1)
 				{
-					int* pindices_gpu_DEBUG = new int[number_of_points_model * batchSize];
-					cudaMemcpy(pindices_gpu_DEBUG, d_indices_gpu, sizeof(int)* batchSize * number_of_points_model, cudaMemcpyDeviceToHost);
+					{
+						int* pindices_gpu_DEBUG = new int[number_of_points_model * batchSize];
+						cudaMemcpy(pindices_gpu_DEBUG, d_indices_gpu, sizeof(int)* batchSize * number_of_points_model, cudaMemcpyDeviceToHost);
+						std::string path;
+						path = debug_path + "/indices.txt";
+						std::FILE* f = std::fopen(path.c_str(), "w");
+
+						for (int i = 0; i < number_of_points_model * batchSize; ++i)
+						{
+							std::fprintf(f, "%d\n", pindices_gpu_DEBUG[i]);
+						}
+						std::fclose(f);
+					}
+					{
+						float* pdists_gpu_DEBUG = new float[number_of_points_model * batchSize];
+						cudaMemcpy(pdists_gpu_DEBUG, d_dists_gpu, sizeof(float)* batchSize * number_of_points_model, cudaMemcpyDeviceToHost);
+
+						std::string path;
+						path = debug_path + "/dists.txt";
+						std::FILE* f = std::fopen(path.c_str(), "w");
+
+						for (int i = 0; i < number_of_points_model * batchSize; ++i)
+						{
+							std::fprintf(f, "%f\n", pdists_gpu_DEBUG[i]);
+						}
+						std::fclose(f);
+					}
+				}
+
+				
+				float sqdistThd = distance_threshold * distance_threshold; // since flann dist is sqdist
+				verifyPointsNearCU(
+					d_dists_gpu,
+					number_of_points_model,
+					batchSize,
+					sqdistThd,
+					d_ppointsValidsGPU);
+				*/
+				
+				float sqdistThd = distance_threshold * distance_threshold; // since flann dist is sqdist
+				findAndVerifyNearestPointsCU(
+					d_pPointModelTransGPU,
+					number_of_points_model,
+					d_pPointSceneGPU,
+					number_of_points_scene,
+					batchSize,
+					sqdistThd,
+					d_ppointsValidsGPU);
+
+				if (debug_flag == 1)
+				{
+					int* ppointsValidsGPU_DEBUG = new int[number_of_points_model * batchSize];
+					cudaMemcpy(ppointsValidsGPU_DEBUG, d_ppointsValidsGPU, sizeof(int)* number_of_points_model * batchSize, cudaMemcpyDeviceToHost);
+
 					std::string path;
-					path = debug_path + "/indices.txt";
+					path = debug_path + "/isValid.txt";
 					std::FILE* f = std::fopen(path.c_str(), "w");
 
-					for (int i = 0; i < number_of_points_model * batchSize; ++i)
+					for (int i = 0; i < number_of_points_model; ++i)
 					{
-						std::fprintf(f, "%d\n", pindices_gpu_DEBUG[i]);
+						std::fprintf(f, "%d\n", ppointsValidsGPU_DEBUG[i]);
 					}
 					std::fclose(f);
 				}
-				{
-					float* pdists_gpu_DEBUG = new float[number_of_points_model * batchSize];
-					cudaMemcpy(pdists_gpu_DEBUG, d_dists_gpu, sizeof(float)* batchSize * number_of_points_model, cudaMemcpyDeviceToHost);
-		
-					std::string path;
-					path = debug_path + "/dists.txt";
-					std::FILE* f = std::fopen(path.c_str(), "w");
+				
+				computePoseLCP_CU(
+					d_ppointsValidsGPU,
+					number_of_points_model,
+					batchSize,
+					d_pLCPsGPU);
 
-					for (int i = 0; i < number_of_points_model * batchSize; ++i)
-					{
-						std::fprintf(f, "%f\n", pdists_gpu_DEBUG[i]);
-					}
-					std::fclose(f);
-				}
+				cudaMemcpy(pLCPs + (k * batchSize), d_pLCPsGPU, sizeof(float) * batchSize, cudaMemcpyDeviceToHost);
 			}
-			
-			float sqdistThd = distance_threshold * distance_threshold; // since flann dist is sqdist
-			 verifyPointsNearCU(
-				d_dists_gpu,        
-				number_of_points_model,
-				batchSize,
-				 sqdistThd,
-			    d_ppointsValidsGPU);
 
-			 if (debug_flag == 1)
-			 {
-				 int* ppointsValidsGPU_DEBUG = new int[number_of_points_model * batchSize];
-				 cudaMemcpy(ppointsValidsGPU_DEBUG, d_ppointsValidsGPU, sizeof(int)* number_of_points_model * batchSize, cudaMemcpyDeviceToHost);
+			float* maxAddr = std::max_element(pLCPs, pLCPs + (numberOfBatch * batchSize));
+			int maxLCPIdx = std::distance(pLCPs, maxAddr);
+			std::cout << "max LCP at: " << maxLCPIdx << " , LCP = " << pLCPs[maxLCPIdx] << '\n';
 
-				std::string path;
-				path = debug_path + "/isValid.txt";
-				std::FILE* f = std::fopen(path.c_str(), "w");
+			best_index = maxLCPIdx;
 
-				for (int i = 0; i < number_of_points_model; ++i)
-				{
-					std::fprintf(f, "%d\n", ppointsValidsGPU_DEBUG[i]);
-				}
-				std::fclose(f);
-			 }
-
-			 computePoseLCP_CU(
-				d_ppointsValidsGPU,
-				number_of_points_model,
-				batchSize,
-				 d_pLCPsGPU);
-
-			 cudaMemcpy(pLCPs + (k * batchSize), d_pLCPsGPU, sizeof(float) * batchSize, cudaMemcpyDeviceToHost);
-			 
+			finish = std::chrono::high_resolution_clock::now();
+			std::cout << "verify transform " << poseEsts.size() << " in "
+				<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+				<< " milliseconds\n";
 		}
-		float* maxAddr = std::max_element(pLCPs, pLCPs + (numberOfBatch * batchSize));
-		int maxLCPIdx = std::distance(pLCPs, maxAddr);
-		std::cout << "max LCP at: " << maxLCPIdx << " , LCP = " << pLCPs[maxLCPIdx] << '\n';
-
-		best_index = maxLCPIdx;
-		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "verify transform " << poseEsts.size() << " in "
-			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
-			<< " milliseconds\n";
 
 		if (1)
 		{
