@@ -184,6 +184,8 @@ int gpucs(std::string scene_path, std::string object_name)
 		std::fclose(f);
 	}
 
+//#define CPU_Trans_cal (1)
+#ifdef CPU_Trans_cal
 	/***********  calculate transform for each ppf correspondences ********************/
 	start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < poseEsts.size() ; ++i)
@@ -292,6 +294,167 @@ int gpucs(std::string scene_path, std::string object_name)
 	std::cout << "calculate transform " << poseEsts.size() << " in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
+#else 
+	/***********  calculate transform for each ppf correspondences ********************/
+	{
+		size_t number_of_points_model = point3d_model.size();
+		float* pPointModel = new float[number_of_points_model * 3];
+		for (int i = 0; i < number_of_points_model; i++)
+		{
+			pPointModel[i * 3 + 0] = point3d_model[i].x();
+			pPointModel[i * 3 + 1] = point3d_model[i].y();
+			pPointModel[i * 3 + 2] = point3d_model[i].z();
+		}
+		float* pPointModelNormal = new float[number_of_points_model * 3];
+		for (int i = 0; i < number_of_points_model; i++)
+		{
+			pPointModelNormal[i * 3 + 0] = point3d_model[i].normal().x();
+			pPointModelNormal[i * 3 + 1] = point3d_model[i].normal().y();
+			pPointModelNormal[i * 3 + 2] = point3d_model[i].normal().z();
+		}
+
+		size_t number_of_points_scene = point3d_scene.size();
+		float* pPointScene = new float[number_of_points_scene * 3];
+		for (int i = 0; i < number_of_points_scene; i++)
+		{
+			pPointScene[i * 3 + 0] = point3d_scene[i].x();
+			pPointScene[i * 3 + 1] = point3d_scene[i].y();
+			pPointScene[i * 3 + 2] = point3d_scene[i].z();
+		}
+		float* pPointSceneNormal = new float[number_of_points_scene * 3];
+		for (int i = 0; i < number_of_points_scene; i++)
+		{
+			pPointSceneNormal[i * 3 + 0] = point3d_scene[i].normal().x();
+			pPointSceneNormal[i * 3 + 1] = point3d_scene[i].normal().y();
+			pPointSceneNormal[i * 3 + 2] = point3d_scene[i].normal().z();
+		}
+		float* d_pPointModelGPU;
+		float* d_pPointSceneGPU;
+		cudaMalloc((void**)&d_pPointModelGPU, sizeof(float)* number_of_points_model * 3);
+		cudaMalloc((void**)&d_pPointSceneGPU, sizeof(float)* number_of_points_scene * 3);
+		cudaMemcpy(d_pPointModelGPU, pPointModel, sizeof(float)* number_of_points_model * 3, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_pPointSceneGPU, pPointScene, sizeof(float)* number_of_points_scene * 3, cudaMemcpyHostToDevice);
+
+		float* d_pPointModelNormalGPU;
+		float* d_pPointSceneNormalGPU;
+		cudaMalloc((void**)&d_pPointModelNormalGPU, sizeof(float)* number_of_points_model * 3);
+		cudaMalloc((void**)&d_pPointSceneNormalGPU, sizeof(float)* number_of_points_scene * 3);
+		cudaMemcpy(d_pPointModelNormalGPU, pPointModelNormal, sizeof(float)* number_of_points_model * 3, cudaMemcpyHostToDevice);
+		cudaMemcpy(d_pPointSceneNormalGPU, pPointSceneNormal, sizeof(float)* number_of_points_scene * 3, cudaMemcpyHostToDevice);
+
+		float* pAllPoses = new float[16 * poseEsts.size()];
+		memset(pAllPoses, 0, sizeof(float) * 16 * poseEsts.size());
+
+		float* d_pPosesGPU_Batch;
+		cudaMalloc((void**)&d_pPosesGPU_Batch, sizeof(float)* batchSize * 16);
+
+		int* pSrcId0_Batch = new int[batchSize];
+		int* pSrcId1_Batch = new int[batchSize];
+		int* pTarId0_Batch = new int[batchSize];
+		int* pTarId1_Batch = new int[batchSize];
+
+		int* d_pSrcId0_GPUBatch;
+		int* d_pSrcId1_GPUBatch;
+		int* d_pTarId0_GPUBatch;
+		int* d_pTarId1_GPUBatch;
+		cudaMalloc((void**)&d_pSrcId0_GPUBatch, sizeof(int)* batchSize);
+		cudaMalloc((void**)&d_pSrcId1_GPUBatch, sizeof(int)* batchSize);
+		cudaMalloc((void**)&d_pTarId0_GPUBatch, sizeof(int)* batchSize);
+		cudaMalloc((void**)&d_pTarId1_GPUBatch, sizeof(int)* batchSize);
+
+		start = std::chrono::high_resolution_clock::now();
+
+		int numOfBatch = poseEsts.size() / batchSize;
+		for (int k = 0; k < numOfBatch; ++k)
+		{
+			for (int i = 0; i < batchSize; ++i)
+			{
+				pSrcId0_Batch[i] = poseEsts.at(k * batchSize + i).srcId[0];
+				pSrcId1_Batch[i] = poseEsts.at(k * batchSize + i).srcId[1];
+				pTarId0_Batch[i] = poseEsts.at(k * batchSize + i).tarId[0];
+				pTarId1_Batch[i] = poseEsts.at(k * batchSize + i).tarId[1];
+			}
+			cudaMemcpy(d_pSrcId0_GPUBatch, pSrcId0_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(d_pSrcId1_GPUBatch, pSrcId1_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(d_pTarId0_GPUBatch, pTarId0_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(d_pTarId1_GPUBatch, pTarId1_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+
+			ComputeTransformForCorrespondencesCU(
+				d_pPointModelGPU,
+				d_pPointModelNormalGPU,
+				number_of_points_model,
+				d_pPointSceneGPU,	
+				d_pPointSceneNormalGPU,
+				number_of_points_scene,
+				d_pSrcId0_GPUBatch,
+				d_pSrcId1_GPUBatch,
+				d_pTarId0_GPUBatch,
+				d_pTarId1_GPUBatch,
+				batchSize,
+				d_pPosesGPU_Batch				
+			);
+			cudaMemcpy(pAllPoses + (k * batchSize * 16), d_pPosesGPU_Batch, sizeof(float) * batchSize * 16, cudaMemcpyDeviceToHost);
+		}
+
+
+		finish = std::chrono::high_resolution_clock::now();
+		std::cout << "calculate transform " << poseEsts.size() << " in "
+			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+			<< " milliseconds\n";
+
+		for (int i = 0; i < numOfBatch * batchSize; ++i)
+		{
+			Eigen::Matrix<float, 4, 4> trans44;
+
+			trans44 <<
+				pAllPoses[i * 16 + 0], pAllPoses[i * 16 + 1], pAllPoses[i * 16 + 2], pAllPoses[i * 16 + 3],
+				pAllPoses[i * 16 + 4], pAllPoses[i * 16 + 5], pAllPoses[i * 16 + 6], pAllPoses[i * 16 + 7],
+				pAllPoses[i * 16 + 8], pAllPoses[i * 16 + 9], pAllPoses[i * 16 + 10], pAllPoses[i * 16 + 11],
+				pAllPoses[i * 16 + 12], pAllPoses[i * 16 + 13], pAllPoses[i * 16 + 14], pAllPoses[i * 16 + 15];
+
+			poseEsts.at(i).trans44 = trans44;
+		}
+
+		delete[] pPointModel;
+		delete[] pPointModelNormal;
+		delete[] pPointScene;
+		delete[] pPointSceneNormal;
+		cudaFree(d_pPointModelGPU);
+		cudaFree(d_pPointSceneGPU);
+		cudaFree(d_pPointModelNormalGPU);
+		cudaFree(d_pPointSceneNormalGPU);
+		delete[] pAllPoses;
+		cudaFree(d_pPosesGPU_Batch);
+
+		delete[] pSrcId0_Batch;
+		delete[] pSrcId1_Batch;
+		delete[] pTarId0_Batch;
+		delete[] pTarId1_Batch;
+		cudaFree(d_pSrcId0_GPUBatch);
+		cudaFree(d_pSrcId1_GPUBatch);
+		cudaFree(d_pTarId0_GPUBatch);
+		cudaFree(d_pTarId1_GPUBatch);
+	}
+#endif
+
+	if (1)
+	{
+		std::string path;
+		path = debug_path + "/transformations.txt";
+		std::FILE* f = std::fopen(path.c_str(), "w");
+
+		for (int i = 0; i < poseEsts.size(); ++i)
+		{
+			std::fprintf(f, "%.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
+				poseEsts[i].trans44(0, 0), poseEsts[i].trans44(0, 1), poseEsts[i].trans44(0, 2), poseEsts[i].trans44(0, 3),
+				poseEsts[i].trans44(1, 0), poseEsts[i].trans44(1, 1), poseEsts[i].trans44(1, 2), poseEsts[i].trans44(1, 3),
+				poseEsts[i].trans44(2, 0), poseEsts[i].trans44(2, 1), poseEsts[i].trans44(2, 2), poseEsts[i].trans44(2, 3),
+				poseEsts[i].trans44(3, 0), poseEsts[i].trans44(3, 1), poseEsts[i].trans44(3, 2), poseEsts[i].trans44(3, 3)
+			);
+		}
+		std::fclose(f);
+	}
+
 #ifdef singleTest
 	//std::vector<poseEst> fakeposes;
 	//fakeposes.push_back(poseEsts.at(324378));
@@ -361,6 +524,7 @@ int gpucs(std::string scene_path, std::string object_name)
 			pPointScene[i * 3 + 2] = point3d_scene[i].z();
 		}
 
+		/*
 		start = std::chrono::high_resolution_clock::now();
 		// KNN, build kd-tree
 		flann::Matrix<float> dataSet(pPointScene, number_of_points_scene, 3, 3 * sizeof(float));
@@ -372,7 +536,7 @@ int gpucs(std::string scene_path, std::string object_name)
 		std::cout << "build KD tree for scene points " << number_of_points_scene << " in "
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 			<< " milliseconds\n";
-
+		*/
 		float* d_pPointSceneGPU;
 		cudaMalloc((void**)&d_pPointSceneGPU, sizeof(float)* number_of_points_scene * 3);
 		cudaMemcpy(d_pPointSceneGPU, pPointScene, sizeof(float)* number_of_points_scene * 3, cudaMemcpyHostToDevice);

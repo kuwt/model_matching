@@ -38,3 +38,18 @@ int  computePoseLCP_CU(
 	);
 
 
+
+int ComputeTransformForCorrespondencesCU(
+		float* pPointModels,		// size: numOfPointModel * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+		float* pPointModelsNormal,   // size: numOfPointModel * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+		int numOfPointModel,
+		float* pPointScene,			// size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+		float* pPointSceneNormal,   // size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+		int numOfPoinScene,
+		int *pSrcId0,				// size: batchSize
+		int *pSrcId1,				// size: batchSize
+		int *pTarId0,				// size: batchSize
+		int *pTarId1,				// size: batchSize
+		int batchSize,						
+		float* pPosesGPU     // size: batchSize * 16
+	);
