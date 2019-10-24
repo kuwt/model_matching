@@ -26,7 +26,6 @@ static float depth_scale = 1 / 10000.0f;
 
 static int image_width = 640;
 static int image_height = 480;
-int a = _MSC_VER;
 static int batchSize = 10000;
 static int debug_flag = 0;
 
@@ -184,7 +183,7 @@ int gpucs(std::string scene_path, std::string object_name)
 		std::fclose(f);
 	}
 
-//#define CPU_Trans_cal (1)
+#define CPU_Trans_cal (0)
 #ifdef CPU_Trans_cal
 	/***********  calculate transform for each ppf correspondences ********************/
 	start = std::chrono::high_resolution_clock::now();

@@ -169,6 +169,7 @@
     <ClCompile Include="..\..\src\stocs.cpp" />
     <ClCompile Include="..\..\src\winmain.cpp" />
     <ClCompile Include="..\..\src\winmain_cpucs_match_one_object.cpp" />
+    <ClCompile Include="..\..\src\winmain_gpucs2_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpulesscs_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_mytest.cpp" />

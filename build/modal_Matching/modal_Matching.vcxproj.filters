@@ -60,6 +60,9 @@
     <ClCompile Include="..\..\src\winmain_gpulesscs_match_one_object.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\winmain_gpucs2_match_one_object.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="..\..\src\model_match.cu" />
