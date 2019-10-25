@@ -6,7 +6,7 @@
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <rgbd.hpp>
-
+#include "imageFileIO.h"
 namespace rgbd {
 
 void
@@ -71,10 +71,9 @@ transform_pointset(std::vector<Point3D>& input,
 
 void
 compute_normal_pcl(PCLPointCloud::Ptr cloud,
-                  float radius) {
+                  float radius)
+{
 
-	
-	
   pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
 
@@ -235,6 +234,99 @@ load_ppf_map(std::string ppf_map_location,
   iarch >> ppf_map;
 
 }
+
+void load_xyzmap_data_sampled(
+	std::string x_location,
+	std::string y_location,
+	std::string z_location,
+	float inscale,
+	std::string isValid_location,
+	std::string segmentation_map_location,
+	float voxel_size,
+	float normal_radius,
+	std::vector<Point3D>& point3d)
+{
+	cv::Mat x_image;
+	cv::Mat y_image;
+	cv::Mat z_image;
+	cv::Mat isValid_map;
+	cv::Mat segmentation_map;
+
+	if (imageFileIO::FILE_LoadImageTiffR(x_image, x_location) != 0)
+	{
+		std::cout << "load x map fail.\n";
+		return;
+	}
+	if (imageFileIO::FILE_LoadImageTiffR(y_image, y_location) != 0)
+	{
+		std::cout << "load y map fail.\n";
+		return;
+	}
+	if (imageFileIO::FILE_LoadImageTiffR(z_image, z_location) != 0)
+	{
+		std::cout << "load z map fail.\n";
+		return;
+	}
+
+	isValid_map = cv::imread(isValid_location, CV_8UC1);
+	if (isValid_map.empty())
+	{
+		std::cout << "load isValid_map fail.\n";
+		return;
+	}
+
+	segmentation_map = cv::imread(segmentation_map_location, CV_16UC1);
+	if (segmentation_map.empty())
+	{
+		std::cout << "load segmentation_map fail.\n";
+		return;
+	}
+
+	/************** compute point cloud from image *******************/
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	for (int i = 0; i < x_image.rows; i++)
+	{
+		for (int j = 0; j < x_image.cols; j++)
+		{
+			if (segmentation_map.at<unsigned char>(i,j) > 0 && isValid_map.at<unsigned char>(i, j) > 0)
+			{
+				pcl::PointXYZRGBNormal pt;
+				pt.x = x_image.at<float>(i, j) * inscale;
+				pt.y = y_image.at<float>(i, j) * inscale;
+				pt.z = z_image.at<float>(i, j) * inscale;
+				cloud->points.push_back(pt);
+			}
+		}
+	}
+	cloud->width = 1;
+	cloud->height = cloud->points.size();
+	cloud->is_dense = true;
+	pcl::io::savePLYFile("./dbg/model.ply", *cloud);
+
+	rgbd::compute_normal_pcl(cloud, normal_radius);
+	pcl::io::savePLYFile("./dbg/model_normal.ply", *cloud);
+	/************** downsample cloud *******************/
+	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
+	sor.setInputCloud(cloud);
+	sor.setLeafSize(voxel_size, voxel_size, voxel_size);
+	sor.filter(*cloud);
+
+	/************** remove outliner *******************/
+	pcl::RadiusOutlierRemoval<pcl::PointXYZRGBNormal> outrem;
+	outrem.setInputCloud(cloud);
+	outrem.setRadiusSearch(2 * voxel_size + 0.005);
+	outrem.setMinNeighborsInRadius(10);
+	outrem.filter(*cloud);
+
+	for (auto pt : cloud->points)
+	{
+		typename Point3D::VectorType n;
+		/*** set the points ***/
+		point3d.emplace_back(pt.x, pt.y, pt.z);
+		n << pt.normal_x, pt.normal_y, pt.normal_z;
+		point3d.back().set_normal(n);
+	}
+} // function: load_xyzmap_data_sampled
 
 void load_rgbd_data_sampled(std::string rgb_location,
                   std::string depth_location,

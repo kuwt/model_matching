@@ -68,12 +68,14 @@
     <Import Project="..\..\CommonPropertySheets\OpenCVPropertySheetDebug346c.props" />
     <Import Project="..\..\CommonPropertySheets\FlannPropertySheetDebug.props" />
     <Import Project="..\..\CommonPropertySheets\PCLPropertySheetDebug.props" />
+    <Import Project="..\..\CommonPropertySheets\tiffDebug.props" />
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="..\..\CommonPropertySheets\OpenCVPropertySheetRelease346c.props" />
     <Import Project="..\..\CommonPropertySheets\FlannPropertySheetRelease.props" />
     <Import Project="..\..\CommonPropertySheets\PCLPropertySheetRelease.props" />
+    <Import Project="..\..\CommonPropertySheets\tiffRelease.props" />
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
@@ -159,21 +161,25 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\src\imageFileIO.h" />
     <ClInclude Include="..\..\src\model_match.cuh" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\src\imageFileIO.cpp" />
     <ClCompile Include="..\..\src\pose_clustering.cpp" />
     <ClCompile Include="..\..\src\rgbd.cpp" />
     <ClCompile Include="..\..\src\stocs.cpp" />
     <ClCompile Include="..\..\src\winmain.cpp" />
     <ClCompile Include="..\..\src\winmain_cpucs_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs2_match_one_object.cpp" />
+    <ClCompile Include="..\..\src\winmain_gpucs3_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpulesscs_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_mytest.cpp" />
     <ClCompile Include="..\..\src\winmain_preprocess.cpp" />
+    <ClCompile Include="..\..\src\winmain_preprocess2.cpp" />
     <ClCompile Include="..\..\src\winmain_stocs_match_one_object.cpp" />
     <ClCompile Include="stdafx.cpp" />
   </ItemGroup>

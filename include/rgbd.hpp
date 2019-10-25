@@ -38,6 +38,16 @@ load_rgbd_data_sampled(std::string rgb_location,
                   float class_probability_threshold,
                   std::vector<Point3D>& point3d);
 
+void load_xyzmap_data_sampled(std::string x_location,
+							std::string y_location,
+							std::string z_location,
+							float inscale,
+							std::string isValid_location,
+							std::string segmentation_map_location,
+							float voxel_size,
+							float normal_radius,
+							std::vector<Point3D>& point3d);
+
 void 
 load_ply_model(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	             std::vector<Point3D>& point3d,
