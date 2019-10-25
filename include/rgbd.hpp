@@ -3,26 +3,12 @@
 
 #include <chrono>
 
-// OpenCV
-#include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/rgbd.hpp>
-
-// PCL
+#include <opencv2/opencv.hpp>
 #include <pcl/io/ply_io.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/surface/mls.h>
-#include <pcl/filters/radius_outlier_removal.h>
-#include <pcl/registration/icp.h>
-#include <pcl/filters/extract_indices.h>
+#include "point3D.hpp"
 
-#include<sampler.hpp>
 
 using PPFMapType = std::map<std::vector<int>, std::vector<std::pair<int, int> > >;
-using PCLPointCloud = pcl::PointCloud<pcl::PointXYZRGBNormal>;
-using ICPICPPointType = pcl::PointNormal;
 using micro = std::chrono::microseconds;
 
 namespace rgbd{

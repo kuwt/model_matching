@@ -1,13 +1,22 @@
 #include "rgbd.hpp"
 
-// All values in m
-static float voxel_size = 0.005;		// sampling size
-static float normal_radius = 0.005; // radius for calculating normal vector of a point
+#include <pcl/filters/random_sample.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/surface/mls.h>
+#include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/registration/icp.h>
+#include <pcl/filters/extract_indices.h>
+
+// input parameters
 static std::string model_scale = "m";		// input model scale
 
-// All values in mm
-static int ppf_tr_discretization = 5;
-static int ppf_rot_discretization = 5;
+// alg parameters
+static float ds_voxel_size = 0.005;		// in m, sampling size
+static float normal_radius = 0.005; // in mm, radius for calculating normal vector of a point
+static int ppf_tr_discretization = 5; // In mm
+static int ppf_rot_discretization = 5; // degrees
+static float validPairMinDist = 0.03; // in mm, depends on object size
 
 
 // supposed to be used offline. Otherwise this can be optimized by reading directly into point3d.
@@ -22,11 +31,10 @@ void  pre_process_model(std::string src_model_location,
 	std::string dst_ppf_map_location)
 {
 	std::vector<Point3D> point3d, point3d_sampled;
-	rgbd::UniformDistSampler sampler;
 	std::map<std::vector<int>, std::vector<std::pair<int, int> > > ppf_map;
 
 	/********** compute normal ********************/
-	PCLPointCloud::Ptr cloud(new PCLPointCloud);
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	pcl::io::loadPLYFile(src_model_location, *cloud);
 	rgbd::compute_normal_pcl(cloud, normal_radius);
 
@@ -38,14 +46,30 @@ void  pre_process_model(std::string src_model_location,
 		cloud->points[i].normal[2] = -cloud->points[i].normal[2];
 	}
 
+	/************Downsample input and target point cloud ***************/
+	
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_Src_DN(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	int downsampleIndexNumber = 1000;
+	{
+		pcl::RandomSample<pcl::PointXYZRGBNormal> Pcl_RandomSample;
+
+		Pcl_RandomSample.setInputCloud(cloud);
+		Pcl_RandomSample.setSample(downsampleIndexNumber);
+		pcl::PointCloud<pcl::PointXYZRGBNormal> cloud_Src_Dsample;
+		Pcl_RandomSample.filter(cloud_Src_Dsample);
+		*cloud_Src_DN = cloud_Src_Dsample;
+	}
+	
 	/********** downsampling ********************/
+	/*
 	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
 	sor.setInputCloud(cloud);
 	sor.setLeafSize(voxel_size, voxel_size, voxel_size);
 	sor.filter(*cloud);
+	*/
 
 	/********** convert from pcl format to custom format ********************/
-	rgbd::load_ply_model(cloud, point3d_sampled, read_depth_scale);
+	rgbd::load_ply_model(cloud_Src_DN, point3d_sampled, read_depth_scale);
 	std::cout << "After sampling |M|= " << point3d_sampled.size() << std::endl;
 
 	/********** compute ppf pairs ********************/
@@ -58,6 +82,19 @@ void  pre_process_model(std::string src_model_location,
 			{
 				continue;
 			}
+			Point3D p1 = point3d_sampled[id1];
+			Point3D p2 = point3d_sampled[id2];
+
+			float dist = std::sqrt(
+				(p1.x() - p2.x()) * (p1.x() - p2.x())
+				+ (p1.y() - p2.y()) * (p1.y() - p2.y())
+				+ (p1.z() - p2.z()) * (p1.z() - p2.z()));
+
+			if (dist < validPairMinDist)
+			{
+				continue;
+			}
+
 			std::vector<int> ppf_;
 			rgbd::ppf_compute(point3d_sampled[id1], point3d_sampled[id2], ppf_tr_discretization, ppf_rot_discretization, ppf_);
 			rgbd::ppf_map_insert(ppf_map, ppf_, ppf_tr_discretization, ppf_rot_discretization, std::make_pair(id1, id2));
@@ -92,7 +129,7 @@ int preprocess2(std::string model_path)
 		normal_radius,
 		inscale,
 		1.0f,
-		voxel_size,
+		ds_voxel_size,
 		ppf_tr_discretization,
 		ppf_rot_discretization,
 		"./model_search.ply",

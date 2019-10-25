@@ -5,120 +5,137 @@
 #include <boost/serialization/utility.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
-#include <rgbd.hpp>
+
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/rgbd.hpp>
+
+// PCL
+
+#include <pcl/features/normal_3d.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/surface/mls.h>
+#include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/registration/icp.h>
+#include <pcl/filters/extract_indices.h>
+
+#include "rgbd.hpp"
 #include "imageFileIO.h"
+
+using PCLPointCloud = pcl::PointCloud<pcl::PointXYZRGBNormal>;
+
+
 namespace rgbd {
 
-void
-load_ply_model(PCLPointCloud::Ptr cloud, 
+void load_ply_model(PCLPointCloud::Ptr cloud, 
               std::vector<Point3D>& point3d,
-              float scale) {
-  
-  typename Point3D::VectorType n;
-  typename Point3D::VectorType rgb;
+              float scale)
+{
+	  typename Point3D::VectorType n;
+	  typename Point3D::VectorType rgb;
 
-  for(auto v: cloud->points) {
-    // check if normal is finite
-    if(std::isfinite(v.normal[0]) && std::isfinite(v.normal[1]) && std::isfinite(v.normal[2])) {
-      point3d.emplace_back( v.x*scale, v.y*scale, v.z*scale);
+	  for(auto v: cloud->points) 
+	  {
+			// check if normal is finite
+			if(std::isfinite(v.normal[0]) && std::isfinite(v.normal[1]) && std::isfinite(v.normal[2]))
+			{
+			  point3d.emplace_back( v.x*scale, v.y*scale, v.z*scale);
       
-      n << v.normal[0], v.normal[1], v.normal[2];
-      rgb << v.r, v.g, v.b;
+			  n << v.normal[0], v.normal[1], v.normal[2];
+			  rgb << v.r, v.g, v.b;
 
-      //normalizes and sets the normal
-      point3d.back().set_normal(n);
-      point3d.back().set_rgb(rgb);
-    }
-  }
+			  //normalizes and sets the normal
+			  point3d.back().set_normal(n);
+			  point3d.back().set_rgb(rgb);
+			}
+	  }
 }
 
-void
-save_as_ply(std::string location, 
+void save_as_ply(std::string location, 
             std::vector<Point3D>& point3d,
-            float scale) {
+            float scale) 
+{
+	  PCLPointCloud::Ptr cloud (new PCLPointCloud);
+	  for(auto v: point3d) {
+		pcl::PointXYZRGBNormal p;
+		p.x = v.x()*scale; 
+		p.y = v.y()*scale; 
+		p.z = v.z()*scale;
+		p.normal[0] = v.normal()[0];
+		p.normal[1] = v.normal()[1];
+		p.normal[2] = v.normal()[2];
+		p.r = v.rgb()[0]; 
+		p.g = v.rgb()[1]; 
+		p.b = v.rgb()[2];
 
-  PCLPointCloud::Ptr cloud (new PCLPointCloud);
-  for(auto v: point3d) {
-    pcl::PointXYZRGBNormal p;
-    p.x = v.x()*scale; 
-    p.y = v.y()*scale; 
-    p.z = v.z()*scale;
-    p.normal[0] = v.normal()[0];
-    p.normal[1] = v.normal()[1];
-    p.normal[2] = v.normal()[2];
-    p.r = v.rgb()[0]; 
-    p.g = v.rgb()[1]; 
-    p.b = v.rgb()[2];
-
-    cloud->points.push_back(p);
-  }
-  pcl::io::savePLYFile(location, *cloud);
+		cloud->points.push_back(p);
+	  }
+	  pcl::io::savePLYFile(location, *cloud);
 }
 
-void
-transform_pointset(std::vector<Point3D>& input,
+void transform_pointset(std::vector<Point3D>& input,
                   std::vector<Point3D>& output,
-                  Eigen::Matrix<Point3D::Scalar, 4, 4> &transform) {
+                  Eigen::Matrix<Point3D::Scalar, 4, 4> &transform) 
+{
 
-  for (int i = 0; i < input.size(); ++i) { 
-    auto pt = (transform * input[i].pos().homogeneous()).head<3>();
-    Point3D new_pt(pt[0], pt[1], pt[2]);
-
-    output.push_back(new_pt);
-  }
-  
+	  for (int i = 0; i < input.size(); ++i) 
+	  { 
+			auto pt = (transform * input[i].pos().homogeneous()).head<3>();
+			Point3D new_pt(pt[0], pt[1], pt[2]);
+			output.push_back(new_pt);
+	  }
 }
 
-void
-compute_normal_pcl(PCLPointCloud::Ptr cloud,
+void compute_normal_pcl(PCLPointCloud::Ptr cloud,
                   float radius)
 {
 
-  pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
-  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
+	  pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
+	  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in(new pcl::PointCloud<pcl::PointXYZ>);
-  // Fill in the CloudIn data
-  cloud_in->width = cloud->width;
-  cloud_in->height = cloud->height;
-  cloud_in->is_dense = true;
-  cloud_in->points.resize(cloud_in->width * cloud_in->height);
+	  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in(new pcl::PointCloud<pcl::PointXYZ>);
+	  // Fill in the CloudIn data
+	  cloud_in->width = cloud->width;
+	  cloud_in->height = cloud->height;
+	  cloud_in->is_dense = true;
+	  cloud_in->points.resize(cloud_in->width * cloud_in->height);
 #pragma omp parallel for
-  for (size_t i = 0; i < cloud_in->points.size(); ++i)
-  {
-	  //cloud_in->
-	  cloud_in->points[i].x = (float)cloud->points[i].x;
-	  cloud_in->points[i].y = (float)cloud->points[i].y;
-	  cloud_in->points[i].z = (float)cloud->points[i].z;
-  }
+	  for (size_t i = 0; i < cloud_in->points.size(); ++i)
+	  {
+		  //cloud_in->
+		  cloud_in->points[i].x = (float)cloud->points[i].x;
+		  cloud_in->points[i].y = (float)cloud->points[i].y;
+		  cloud_in->points[i].z = (float)cloud->points[i].z;
+	  }
 
-  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
+	  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
 
-  ne.setInputCloud(cloud_in);
-  ne.setSearchMethod(tree);
-  ne.setRadiusSearch(radius);
-  ne.compute(*cloud_normals);
+	  ne.setInputCloud(cloud_in);
+	  ne.setSearchMethod(tree);
+	  ne.setRadiusSearch(radius);
+	  ne.compute(*cloud_normals);
 #pragma omp parallel for
-  for (int i = 0; i < cloud->points.size(); i++)
-  {
-	  cloud->points[i].normal_x = cloud_normals->points[i].normal_x;
-	  cloud->points[i].normal_y = cloud_normals->points[i].normal_y;
-	  cloud->points[i].normal_z = cloud_normals->points[i].normal_z;
-  }
+	  for (int i = 0; i < cloud->points.size(); i++)
+	  {
+		  cloud->points[i].normal_x = cloud_normals->points[i].normal_x;
+		  cloud->points[i].normal_y = cloud_normals->points[i].normal_y;
+		  cloud->points[i].normal_z = cloud_normals->points[i].normal_z;
+	  }
 
-/*
-  pcl::NormalEstimation<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> ne;
-  pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBNormal> ());
+	/*
+	  pcl::NormalEstimation<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> ne;
+	  pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBNormal> ());
   
-  ne.setInputCloud (cloud);
-  ne.setSearchMethod (tree);
-  ne.setRadiusSearch (radius);
-  ne.compute (*cloud);
-  */
+	  ne.setInputCloud (cloud);
+	  ne.setSearchMethod (tree);
+	  ne.setRadiusSearch (radius);
+	  ne.compute (*cloud);
+	  */
 }
 
-int 
-ppf_closest_bin(int value, int discretization) {
+int ppf_closest_bin(int value, int discretization)
+{
 
   int lower_limit = value - (value % discretization);
   int upper_limit = lower_limit + discretization;
@@ -222,9 +239,9 @@ void	save_ppf_map(std::string location,
 	}
 }
 
-void
-load_ppf_map(std::string ppf_map_location,
-            std::map<std::vector<int>, std::vector<std::pair<int, int> > > &ppf_map) {
+void load_ppf_map(std::string ppf_map_location,
+            std::map<std::vector<int>, std::vector<std::pair<int, int> > > &ppf_map)
+{
 
   std::ifstream ppf_file(ppf_map_location, std::ios::binary);
   std::stringstream s;
@@ -232,7 +249,6 @@ load_ppf_map(std::string ppf_map_location,
   ppf_file.close();
   boost::archive::binary_iarchive iarch(s);
   iarch >> ppf_map;
-
 }
 
 void load_xyzmap_data_sampled(

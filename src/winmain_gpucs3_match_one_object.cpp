@@ -7,16 +7,19 @@
 
 namespace fs = std::experimental::filesystem;
 
-// rgbd parameters
-static float voxel_size = 0.005; // In m
-static float distance_threshold = 0.005; // for Congruent Set Matching and LCP computation
-static int ppf_tr_discretization = 5; // In mm
-static int ppf_rot_discretization = 5; // degrees
-static float class_threshold = 0.30; // Cut-off probability
-static float normal_radius = 0.005; // radius for calculating normal vector of a point
+// alg parameters
+static float ds_voxel_size = 0.005; // In m, sampling size
+static float normal_radius = 0.005; // In m radius for calculating normal vector of a point, depends on point cloud density
+static int ppf_tr_discretization = 5; // In mm, same as when create model. 
+static int ppf_rot_discretization = 5; // degrees, same as when create model. 
+static float validPairMinDist = 0.03; // depends on object size
 
+static float lcp_distthreshold = 0.002; // for Congruent Set Matching and LCP computation, depends on point cloud density
+
+// input parameters
 static std::string scene_scale = "mm";		// input model scale
 
+// running parameters
 static int batchSize = 10000;
 static int debug_flag = 0;
 
@@ -39,7 +42,7 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 
 	/********** load model ********************************/
 	std::vector<Point3D> point3d_model;
-	PCLPointCloud::Ptr cloud(new PCLPointCloud);
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	pcl::io::loadPLYFile(model_location, *cloud);
 	rgbd::load_ply_model(cloud, point3d_model, 1.0f);
 
@@ -65,7 +68,7 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 		inscale,
 		isValid_location,
 		segmentation_map_location,
-		voxel_size,
+		ds_voxel_size,
 		normal_radius,
 		point3d_scene);
 
@@ -339,7 +342,7 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 		cudaFree(d_pTarId1_GPUBatch);
 	}
 
-	if (1)
+	if (0)
 	{
 		std::string path;
 		path = debug_path + "/transformations.txt";
@@ -448,7 +451,7 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 				d_pPointModelTransGPUBatch
 			);
 
-			float sqdistThd = distance_threshold * distance_threshold; // since flann dist is sqdist
+			float sqdistThd = lcp_distthreshold * lcp_distthreshold; // since flann dist is sqdist
 			findAndVerifyNearestPointsCU(
 				d_pPointModelTransGPUBatch,
 				number_of_points_model,
@@ -529,6 +532,12 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 		rgbd::transform_pointset(point3d_model, point3d_model_pose, poseEsts[best_index].trans44);
 		rgbd::save_as_ply(debug_path + "/best_pose.ply", point3d_model_pose, 1);
 		rgbd::save_as_ply(debug_path + "/scene.ply", point3d_scene, 1);
+
+		if (scene_scale == "mm")
+		{
+			rgbd::save_as_ply(debug_path + "/best_pose_1000.ply", point3d_model_pose, 1000);
+		}
+		
 	}
 
 	return 0;
