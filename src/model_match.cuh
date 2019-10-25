@@ -9,8 +9,6 @@ int  TransformPointsCU(
 	float* pPointModelTranses     // size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
 	);
 
-
-
 int  verifyPointsNearCU(
 	float* pdists,        // size: numOfPointPerModel * batchSize ;;  t1 pt1 dist, t1 pt2 dist, ...  , t1 ptn dist, t2 pt1 dist, t2 pt2 dist, ...... 
 	int numOfPointPerModel,
@@ -18,7 +16,6 @@ int  verifyPointsNearCU(
 	float distThd,
     int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
 	);
-
 
 int  findAndVerifyNearestPointsCU(
 	float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
@@ -50,6 +47,6 @@ int ComputeTransformForCorrespondencesCU(
 		int *pSrcId1,				// size: batchSize
 		int *pTarId0,				// size: batchSize
 		int *pTarId1,				// size: batchSize
-		int batchSize,						
+		int batchSize,		
 		float* pPosesGPU     // size: batchSize * 16
 	);

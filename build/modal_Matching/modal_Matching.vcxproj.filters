@@ -51,9 +51,6 @@
     <ClCompile Include="..\..\src\winmain_mytest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\winmain_gpucs_match_one_object.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\winmain_cpucs_match_one_object.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -61,6 +58,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\winmain_gpucs2_match_one_object.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\winmain_gpucs_match_one_object.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

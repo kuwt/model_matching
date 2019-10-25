@@ -174,10 +174,10 @@ int cpucs(std::string scene_path, std::string object_name)
 			for (int k = 0; k < v.size(); k++)
 			{
 				poseEst e;
-				e.srcId[0] = firstIdx;
-				e.srcId[1] = secondIdx;
-				e.tarId[0] = v[k].first;
-				e.tarId[1] = v[k].second;
+				e.srcId[0] = v[k].first;  // model
+				e.srcId[1] = v[k].second;
+				e.tarId[0] = firstIdx; // scene
+				e.tarId[1] = secondIdx;
 				e.ppf[0] = ppf[0];
 				e.ppf[1] = ppf[1];
 				e.ppf[2] = ppf[2];

@@ -364,7 +364,7 @@ __global__ void ComputeTransformForCorrespondencesKernel(
 		int *pSrcId1,				// size: batchSize
 		int *pTarId0,				// size: batchSize
 		int *pTarId1,				// size: batchSize
-		int batchSize,						
+		int batchSize,	
 		float* pPosesGPU     // size: batchSize * 16
 	)
 {
@@ -562,6 +562,7 @@ __global__ void ComputeTransformForCorrespondencesKernel(
 	for (int i = 0; i < 16 ; ++i)
 	{
 		pPosesGPU[IdxInBatch * 16 + i] = trans44[i];
+		//pPosesGPU[IdxInBatch * 16 + i] = 5;
 	}
 }
 
@@ -577,7 +578,7 @@ int ComputeTransformForCorrespondencesCU(
 		int *pSrcId1,				// size: batchSize
 		int *pTarId0,				// size: batchSize
 		int *pTarId1,				// size: batchSize
-		int batchSize,						
+		int batchSize,	
 		float* pPosesGPU     // size: batchSize * 16
 	)
 {
@@ -595,7 +596,7 @@ int ComputeTransformForCorrespondencesCU(
 		pSrcId1,		
 		pTarId0,			
 		pTarId1,		
-		batchSize,						
+		batchSize,	
 		pPosesGPU);
 
     gpuErrchk( cudaPeekAtLastError());
