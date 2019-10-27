@@ -19,6 +19,7 @@
 #include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/registration/icp.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/random_sample.h>
 
 #include "rgbd.hpp"
 #include "imageFileIO.h"
@@ -322,14 +323,27 @@ void load_xyzmap_data_sampled(
 	rgbd::compute_normal_pcl(cloud, normal_radius);
 	pcl::io::savePLYFile("./dbg/model_normal.ply", *cloud);
 	/************** downsample cloud *******************/
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_Src_DN(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	int downsampleIndexNumber = 1000;
+	{
+		pcl::RandomSample<pcl::PointXYZRGBNormal> Pcl_RandomSample;
+
+		Pcl_RandomSample.setInputCloud(cloud);
+		Pcl_RandomSample.setSample(downsampleIndexNumber);
+		pcl::PointCloud<pcl::PointXYZRGBNormal> cloud_Src_Dsample;
+		Pcl_RandomSample.filter(cloud_Src_Dsample);
+		*cloud_Src_DN = cloud_Src_Dsample;
+	}
+
+	/*
 	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
 	sor.setInputCloud(cloud);
 	sor.setLeafSize(voxel_size, voxel_size, voxel_size);
 	sor.filter(*cloud);
-
+	*/
 	/************** remove outliner *******************/
 	pcl::RadiusOutlierRemoval<pcl::PointXYZRGBNormal> outrem;
-	outrem.setInputCloud(cloud);
+	outrem.setInputCloud(cloud_Src_DN);
 	outrem.setRadiusSearch(2 * voxel_size + 0.005);
 	outrem.setMinNeighborsInRadius(10);
 	outrem.filter(*cloud);
