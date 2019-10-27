@@ -171,6 +171,7 @@
     <ClCompile Include="..\..\src\rgbd.cpp" />
     <ClCompile Include="..\..\src\winmain.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs3_match_one_object.cpp" />
+    <ClCompile Include="..\..\src\winmain_gpucs4_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_preprocess2.cpp" />
     <ClCompile Include="stdafx.cpp" />
   </ItemGroup>

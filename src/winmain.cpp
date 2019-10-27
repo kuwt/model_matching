@@ -3,6 +3,7 @@
 
 
 extern int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path);
+extern int gpucs4(std::string scene_path, std::string object_path, std::string ppf_path);
 extern int preprocess2(std::string model_path);
 int main(int argc, char** argv)
 {
@@ -18,7 +19,7 @@ int main(int argc, char** argv)
 		std::string modelpath = "./model_search.ply";
 		std::string ppfpath = "./ppf_map";
 		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/1/";
-		gpucs3(scenePath, modelpath, ppfpath);
+		gpucs4(scenePath, modelpath, ppfpath);
 	}
 }
 

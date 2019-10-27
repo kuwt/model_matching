@@ -142,6 +142,95 @@ __global__ void findAndVerifyNearestPointsKernel(
 	return;
 }
 
+__global__ void findAndVerifyNearestPointsShrMemKernel(
+    float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointPerModel,
+	float *pPointScene,			// size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointScene,
+	int batchSize,
+	float distThd,
+    int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
+	)
+{
+	//************input check *******************//
+	if (
+		pPointModels == NULL
+		|| pPointScene == NULL
+		|| ppointsValids == NULL
+		)
+	{
+		return;
+	}
+
+	int gii = blockDim.x * blockIdx.x + threadIdx.x; // the ?th points, one point one thread
+	int totalSize = numOfPointPerModel * batchSize;
+	if (gii >= totalSize)
+	{
+		return;
+	}
+
+	__shared__ float myblockpointsScene[1024 * 3];
+	if (gii < numOfPointScene)
+	{
+		myblockpointsScene[gii * 3 + 0] = pPointScene[gii * 3 + 0];
+		myblockpointsScene[gii * 3 + 1] = pPointScene[gii * 3 + 1];
+		myblockpointsScene[gii * 3 + 2] = pPointScene[gii * 3 + 2];
+	}
+	__syncthreads();
+
+	int pointIdx = gii;
+	float x = pPointModels[(pointIdx * 3)];
+	float y = pPointModels[(pointIdx * 3) + 1];
+	float z = pPointModels[(pointIdx * 3) + 2];
+
+	//float minSqDist = 100; // mm2
+	//float minSIdx = 0;
+	for (int sceneIdx = 0; sceneIdx < numOfPointScene; ++sceneIdx)
+	{
+		float x_scene = myblockpointsScene[sceneIdx * 3];
+		float y_scene = myblockpointsScene[sceneIdx * 3 + 1];
+		float z_scene = myblockpointsScene[sceneIdx * 3 + 2];
+		float sqdist = (x - x_scene) * (x - x_scene) + (y - y_scene) *  (y - y_scene) + (z - z_scene) *  (z - z_scene);
+		
+		if (sqdist < distThd)
+		{
+			ppointsValids[pointIdx] = 1;
+			return;
+		}
+	}
+	
+	ppointsValids[pointIdx] = 0;
+	return;
+}
+
+int  findAndVerifyNearestPointsShrMemCU(
+	float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointPerModel,
+	float *pPointScene,			// size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointScene,
+	int batchSize,
+	float distThd,
+    int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
+	)
+{
+	unsigned int threadsPerBlock = 1024;
+	unsigned int totalThreadSize = numOfPointPerModel * batchSize;
+	unsigned int blocksPerGrid = (totalThreadSize + threadsPerBlock - 1) / threadsPerBlock;
+	findAndVerifyNearestPointsShrMemKernel << <blocksPerGrid, threadsPerBlock >> > (
+		pPointModels,
+		numOfPointPerModel,
+		pPointScene,
+		numOfPointScene,
+		batchSize,
+		distThd,
+		ppointsValids);
+
+    gpuErrchk( cudaPeekAtLastError());
+	gpuErrchk(cudaThreadSynchronize());
+
+	return 0;
+}
+
 int  findAndVerifyNearestPointsCU(
 	float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
 	int numOfPointPerModel,
@@ -167,7 +256,6 @@ int  findAndVerifyNearestPointsCU(
 
     gpuErrchk( cudaPeekAtLastError());
 	gpuErrchk(cudaThreadSynchronize());
-
 
 	return 0;
 }

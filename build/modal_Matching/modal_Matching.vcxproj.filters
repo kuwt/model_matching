@@ -48,6 +48,9 @@
     <ClCompile Include="..\..\src\imageFileIO.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\winmain_gpucs4_match_one_object.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="..\..\src\model_match.cu" />
