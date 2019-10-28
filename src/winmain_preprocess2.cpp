@@ -9,14 +9,14 @@
 #include <pcl/filters/extract_indices.h>
 
 // input parameters
-static std::string model_scale = "m";		// input model scale
+extern const std::string model_scale;
 
 // alg parameters
-static float ds_voxel_size = 0.005;		// in m, sampling size
-static float normal_radius = 0.005; // in mm, radius for calculating normal vector of a point
-static int ppf_tr_discretization = 5; // In mm
-static int ppf_rot_discretization = 5; // degrees
-static float validPairMinDist = 0.06; // in mm, depends on object size
+extern const float ds_voxel_size;
+extern const float normal_radius;
+extern const int ppf_tr_discretization;
+extern const int ppf_rot_discretization;
+extern const float validPairMinDist;
 
 
 // supposed to be used offline. Otherwise this can be optimized by reading directly into point3d.

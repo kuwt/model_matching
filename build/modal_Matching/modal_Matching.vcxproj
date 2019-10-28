@@ -168,6 +168,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\imageFileIO.cpp" />
+    <ClCompile Include="..\..\src\parameters.cpp" />
     <ClCompile Include="..\..\src\rgbd.cpp" />
     <ClCompile Include="..\..\src\winmain.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs3_match_one_object.cpp" />

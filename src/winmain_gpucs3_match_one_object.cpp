@@ -8,20 +8,20 @@
 namespace fs = std::experimental::filesystem;
 
 // alg parameters
-static float ds_voxel_size = 0.005; // In m, sampling size
-static float normal_radius = 0.005; // In m radius for calculating normal vector of a point, depends on point cloud density
-static int ppf_tr_discretization = 5; // In mm, same as when create model. 
-static int ppf_rot_discretization = 5; // degrees, same as when create model. 
-static float validPairMinDist = 0.03; // depends on object size
+extern const float ds_voxel_size;
+extern const float normal_radius;
+extern const int ppf_tr_discretization;
+extern const int ppf_rot_discretization;
+extern const float validPairMinDist;
 
-static float lcp_distthreshold = 0.002; // for Congruent Set Matching and LCP computation, depends on point cloud density
+extern const float lcp_distthreshold;
 
 // input parameters
-static std::string scene_scale = "mm";		// input model scale
+extern const std::string scene_scale;
 
 // running parameters
-static int batchSize = 10000;
-static int debug_flag = 0;
+extern const int batchSize;
+extern const int debug_flag;
 
 int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path)
 {
