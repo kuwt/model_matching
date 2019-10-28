@@ -37,6 +37,7 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 	fs::create_directories(debug_path);
 
 	/***********  load PPF map ********************/
+	auto start = std::chrono::high_resolution_clock::now();
 	PPFMapType model_map;
 	rgbd::load_ppf_map(model_map_path, model_map);
 
@@ -49,7 +50,12 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 	rgbd::save_as_ply(debug_path + "/model.ply", point3d_model, 1.0);
 	std::cout << "|M| = " << point3d_model.size() << ",  |map(M)| = " << model_map.size() << std::endl;
 
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::cout << "Loading model" << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 	/***********  load scene in sample form ********************/
+	start = std::chrono::high_resolution_clock::now();
 	float inscale = 1.0;
 	if (scene_scale == "m")
 	{
@@ -72,13 +78,17 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 		normal_radius,
 		point3d_scene);
 
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "Loading scene " << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 
 	rgbd::save_as_ply(debug_path + "/sampled_scene.ply", point3d_scene, 1.0);
 	std::cout << "|S| = " << point3d_scene.size() << std::endl;
 
 
 	/***********  calculate ppf pairs********************/
-	auto start = std::chrono::high_resolution_clock::now();
+	start = std::chrono::high_resolution_clock::now();
 	std::vector<std::pair<int,int>> goodPairs;
 	for (int i = 0; i < point3d_scene.size(); i++)
 	{
@@ -101,7 +111,7 @@ int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path
 		}
 	}
 
-	auto finish = std::chrono::high_resolution_clock::now();
+	finish = std::chrono::high_resolution_clock::now();
 	std::cout << "calculate ppf pairs  " << goodPairs.size() << " in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";

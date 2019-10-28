@@ -12,14 +12,14 @@ int main(int argc, char** argv)
 
 	if (mode == 0)
 	{
-		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/1/tmodel.ply";
+		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/y1/ymodel.ply";
 		preprocess2(modelpath);
 	}
 	else
 	{
 		std::string modelpath = "./model_search.ply";
 		std::string ppfpath = "./ppf_map";
-		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/1/";
+		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/y1/";
 		gpucs3(scenePath, modelpath, ppfpath);
 	}
 }

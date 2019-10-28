@@ -300,6 +300,7 @@ void load_xyzmap_data_sampled(
 	}
 
 	/************** compute point cloud from image *******************/
+	auto start = std::chrono::high_resolution_clock::now();
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	for (int i = 0; i < x_image.rows; i++)
 	{
@@ -318,13 +319,22 @@ void load_xyzmap_data_sampled(
 	cloud->width = 1;
 	cloud->height = cloud->points.size();
 	cloud->is_dense = true;
-	pcl::io::savePLYFile("./dbg/model.ply", *cloud);
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::cout << "compute pointcloud from image in " 
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 
+	/************** compute normal *******************/
+	start = std::chrono::high_resolution_clock::now();
 	rgbd::compute_normal_pcl(cloud, normal_radius);
-	pcl::io::savePLYFile("./dbg/model_normal.ply", *cloud);
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "compute normal in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 	/************** downsample cloud *******************/
+	start = std::chrono::high_resolution_clock::now();
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_Src_DN(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-	int downsampleIndexNumber = 1000;
+	int downsampleIndexNumber = 600;
 	{
 		pcl::RandomSample<pcl::PointXYZRGBNormal> Pcl_RandomSample;
 
@@ -334,7 +344,10 @@ void load_xyzmap_data_sampled(
 		Pcl_RandomSample.filter(cloud_Src_Dsample);
 		*cloud_Src_DN = cloud_Src_Dsample;
 	}
-
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "downsample in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 	/*
 	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
 	sor.setInputCloud(cloud);
@@ -342,11 +355,17 @@ void load_xyzmap_data_sampled(
 	sor.filter(*cloud);
 	*/
 	/************** remove outliner *******************/
+	start = std::chrono::high_resolution_clock::now();
 	pcl::RadiusOutlierRemoval<pcl::PointXYZRGBNormal> outrem;
 	outrem.setInputCloud(cloud_Src_DN);
 	outrem.setRadiusSearch(2 * voxel_size + 0.005);
 	outrem.setMinNeighborsInRadius(10);
 	outrem.filter(*cloud);
+
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "remove outliner in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 
 	for (auto pt : cloud->points)
 	{

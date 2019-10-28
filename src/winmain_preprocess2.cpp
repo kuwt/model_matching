@@ -16,7 +16,7 @@ static float ds_voxel_size = 0.005;		// in m, sampling size
 static float normal_radius = 0.005; // in mm, radius for calculating normal vector of a point
 static int ppf_tr_discretization = 5; // In mm
 static int ppf_rot_discretization = 5; // degrees
-static float validPairMinDist = 0.03; // in mm, depends on object size
+static float validPairMinDist = 0.06; // in mm, depends on object size
 
 
 // supposed to be used offline. Otherwise this can be optimized by reading directly into point3d.
