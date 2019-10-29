@@ -332,6 +332,7 @@ void load_xyzmap_data_sampled(
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 	/************** downsample cloud *******************/
+	/*
 	start = std::chrono::high_resolution_clock::now();
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_Src_DN(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	int downsampleIndexNumber = 600;
@@ -348,16 +349,17 @@ void load_xyzmap_data_sampled(
 	std::cout << "downsample in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
-	/*
+		*/
+	
 	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
 	sor.setInputCloud(cloud);
 	sor.setLeafSize(voxel_size, voxel_size, voxel_size);
 	sor.filter(*cloud);
-	*/
+	
 	/************** remove outliner *******************/
 	start = std::chrono::high_resolution_clock::now();
 	pcl::RadiusOutlierRemoval<pcl::PointXYZRGBNormal> outrem;
-	outrem.setInputCloud(cloud_Src_DN);
+	outrem.setInputCloud(cloud);
 	outrem.setRadiusSearch(2 * voxel_size + 0.005);
 	outrem.setMinNeighborsInRadius(10);
 	outrem.filter(*cloud);

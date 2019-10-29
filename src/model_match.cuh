@@ -37,6 +37,22 @@ int  findAndVerifyNearestPointsShrMemCU(
     int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
 	);
 
+int  findAndVerifyNearestPointsVoxelPartitionCU(
+	float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointPerModel,
+	float *pPointScene,			// size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointScene,
+	int* pNumOfPointSceneInPartition, // size: partitionSizeX *partitionSizeY * partitionSizeZ 
+	int* pPartitionStartIdx, // size: partitionSizeX *partitionSizeY * partitionSizeZ 
+	float *p_partitionSize,
+	int *p_partitionNumber,
+	float *p_minPt,
+	float *p_maxPt,
+	int batchSize,
+	float distThd,
+    int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
+	);
+
 int  computePoseLCP_CU(
 	int* ppointsValids,   // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
 	int numOfPointPerModel,

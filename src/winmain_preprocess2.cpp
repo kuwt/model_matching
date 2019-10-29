@@ -47,7 +47,7 @@ void  pre_process_model(std::string src_model_location,
 	}
 
 	/************Downsample input and target point cloud ***************/
-	
+	/*
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_Src_DN(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	int downsampleIndexNumber = 1000;
 	{
@@ -59,17 +59,17 @@ void  pre_process_model(std::string src_model_location,
 		Pcl_RandomSample.filter(cloud_Src_Dsample);
 		*cloud_Src_DN = cloud_Src_Dsample;
 	}
-	
+	*/
 	/********** downsampling ********************/
-	/*
+	
 	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
 	sor.setInputCloud(cloud);
 	sor.setLeafSize(voxel_size, voxel_size, voxel_size);
 	sor.filter(*cloud);
-	*/
+	
 
 	/********** convert from pcl format to custom format ********************/
-	rgbd::load_ply_model(cloud_Src_DN, point3d_sampled, read_depth_scale);
+	rgbd::load_ply_model(cloud, point3d_sampled, read_depth_scale);
 	std::cout << "After sampling |M|= " << point3d_sampled.size() << std::endl;
 
 	/********** compute ppf pairs ********************/

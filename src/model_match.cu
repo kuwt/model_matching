@@ -203,32 +203,93 @@ __global__ void findAndVerifyNearestPointsShrMemKernel(
 	return;
 }
 
-int  findAndVerifyNearestPointsShrMemCU(
-	float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+__global__ void findAndVerifyNearestPointsVoxelPartitionKernel(
+    float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
 	int numOfPointPerModel,
 	float *pPointScene,			// size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
 	int numOfPointScene,
+	int* pNumOfPointSceneInPartition, // size: partitionSizeX *partitionSizeY * partitionSizeZ 
+	int* pPartitionStartIdx, // size: partitionSizeX *partitionSizeY * partitionSizeZ 
+	float *p_partitionSize,
+	int *p_partitionNumber,
+	float *p_minPt,     //size: 3
+	float *p_maxPt,		//size: 3
 	int batchSize,
 	float distThd,
     int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
 	)
 {
-	unsigned int threadsPerBlock = 1024;
-	unsigned int totalThreadSize = numOfPointPerModel * batchSize;
-	unsigned int blocksPerGrid = (totalThreadSize + threadsPerBlock - 1) / threadsPerBlock;
-	findAndVerifyNearestPointsShrMemKernel << <blocksPerGrid, threadsPerBlock >> > (
-		pPointModels,
-		numOfPointPerModel,
-		pPointScene,
-		numOfPointScene,
-		batchSize,
-		distThd,
-		ppointsValids);
+	//************input check *******************//
+	if (
+		pPointModels == NULL
+		|| pPointScene == NULL
+		|| ppointsValids == NULL
+		)
+	{
+		return;
+	}
 
-    gpuErrchk( cudaPeekAtLastError());
-	gpuErrchk(cudaThreadSynchronize());
+	int gii = blockDim.x * blockIdx.x + threadIdx.x; // the ?th points, one point one thread
+	int totalSize = numOfPointPerModel * batchSize;
+	if (gii >= totalSize)
+	{
+		return;
+	}
 
-	return 0;
+	int pointIdx = gii;
+	ppointsValids[pointIdx] = 0;
+
+	float x = pPointModels[(pointIdx * 3)];
+	float y = pPointModels[(pointIdx * 3) + 1];
+	float z = pPointModels[(pointIdx * 3) + 2];
+	/******** check if inside bbox ***************/
+	if (x < p_minPt[0] )
+	{
+		return;
+	}
+	if (x > p_maxPt[0] )
+	{
+		return;
+	}
+	if (y < p_minPt[1] )
+	{
+		return;
+	}
+	if (y > p_maxPt[1] )
+	{
+		return;
+	}
+	if (z < p_minPt[2] )
+	{
+		return;
+	}
+	if (z > p_maxPt[2] )
+	{
+		return;
+	}
+	
+	/******** classify into voxel ***************/
+	int xId = (x - p_minPt[0]) / p_partitionSize[0];
+	int yId = (y - p_minPt[1]) / p_partitionSize[1];
+	int zId = (z - p_minPt[2]) / p_partitionSize[2];
+
+	int hashId = zId * p_partitionNumber[1] * p_partitionNumber[0] + yId * p_partitionNumber[0] + xId;
+	/******** check min dist ***************/
+	for (int sceneIdx = pPartitionStartIdx[hashId]; sceneIdx < (pPartitionStartIdx[hashId] + pNumOfPointSceneInPartition[hashId]); ++sceneIdx)
+	{
+		float x_scene = pPointScene[sceneIdx * 3];
+		float y_scene = pPointScene[sceneIdx * 3 + 1];
+		float z_scene = pPointScene[sceneIdx * 3 + 2];
+		float sqdist = (x - x_scene) * (x - x_scene) + (y - y_scene) *  (y - y_scene) + (z - z_scene) *  (z - z_scene);
+		
+		if (sqdist < distThd)
+		{
+			ppointsValids[pointIdx] = 1;
+			return;
+		}
+	}
+
+	return;
 }
 
 int  findAndVerifyNearestPointsCU(
@@ -260,6 +321,73 @@ int  findAndVerifyNearestPointsCU(
 	return 0;
 }
 
+int  findAndVerifyNearestPointsShrMemCU(
+	float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointPerModel,
+	float *pPointScene,			// size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointScene,
+	int batchSize,
+	float distThd,
+    int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
+	)
+{
+	unsigned int threadsPerBlock = 1024;
+	unsigned int totalThreadSize = numOfPointPerModel * batchSize;
+	unsigned int blocksPerGrid = (totalThreadSize + threadsPerBlock - 1) / threadsPerBlock;
+	findAndVerifyNearestPointsShrMemKernel << <blocksPerGrid, threadsPerBlock >> > (
+		pPointModels,
+		numOfPointPerModel,
+		pPointScene,
+		numOfPointScene,
+		batchSize,
+		distThd,
+		ppointsValids);
+
+    gpuErrchk( cudaPeekAtLastError());
+	gpuErrchk(cudaThreadSynchronize());
+
+	return 0;
+}
+
+int  findAndVerifyNearestPointsVoxelPartitionCU(
+	float* pPointModels,		// size: numOfPointPerModel * batchSize * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointPerModel,
+	float *pPointScene,			// size: numOfPointScene * 3 ;; p1_x,P1_y,p1_z,p2_x,p2_y,p2_z,p3_x,p3_y,p3_z ...
+	int numOfPointScene,
+	int* pNumOfPointSceneInPartition, // size: partitionSizeX *partitionSizeY * partitionSizeZ 
+	int* pPartitionStartIdx, // size: partitionSizeX *partitionSizeY * partitionSizeZ 
+	float *p_partitionSize,
+	int *p_partitionNumber,
+	float *p_minPt,     //size: 3
+	float *p_maxPt,		//size: 3
+	int batchSize,
+	float distThd,
+    int* ppointsValids     // size: numOfPointPerModel * batchSize ;; t1 pt1 valid, t1 pt2 valid, ...  ,t1 ptn valid , t2 pt1 valid, t2 pt2 valid, ...  ,t2 ptn valid , ...... 
+	)
+{
+	unsigned int threadsPerBlock = 1024;
+	unsigned int totalThreadSize = numOfPointPerModel * batchSize;
+	unsigned int blocksPerGrid = (totalThreadSize + threadsPerBlock - 1) / threadsPerBlock;
+	findAndVerifyNearestPointsVoxelPartitionKernel << <blocksPerGrid, threadsPerBlock >> > (
+		pPointModels,
+		numOfPointPerModel,
+		pPointScene,
+		numOfPointScene,
+		pNumOfPointSceneInPartition,
+		pPartitionStartIdx,
+		p_partitionSize,
+		p_partitionNumber,
+		p_minPt,
+		p_maxPt,
+		batchSize,
+		distThd,
+		ppointsValids);
+
+    gpuErrchk( cudaPeekAtLastError());
+	gpuErrchk(cudaThreadSynchronize());
+
+	return 0;
+}
 __global__ void verifyPointsNearKernel(
     float* pdists,        // size: numOfPointPerModel * batchSize ;;  t1 pt1 dist, t1 pt2 dist, ...  , t1 ptn dist, t2 pt1 dist, t2 pt2 dist, ...... 
 	int numOfPointPerModel,

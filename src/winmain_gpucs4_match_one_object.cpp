@@ -15,6 +15,7 @@ extern const int ppf_rot_discretization;
 extern const float validPairMinDist;
 
 extern const float lcp_distthreshold;
+extern const int goodPairsMax;
 
 // input parameters
 extern const std::string scene_scale;
@@ -84,7 +85,6 @@ int gpucs4(std::string scene_path, std::string object_path, std::string ppf_path
 	{
 		for (int j = i + 1; j < point3d_scene.size(); j++)
 		{
-			float distThd = 0.050; // m
 			Point3D p1 = point3d_scene[i];
 			Point3D p2 = point3d_scene[j];
 
@@ -93,7 +93,7 @@ int gpucs4(std::string scene_path, std::string object_path, std::string ppf_path
 				+ (p1.y() - p2.y()) * (p1.y() - p2.y())
 				+ (p1.z() - p2.z()) * (p1.z() - p2.z()));
 
-			if (dist < distThd)
+			if (dist < validPairMinDist)
 			{
 				continue;
 			}
@@ -106,7 +106,6 @@ int gpucs4(std::string scene_path, std::string object_path, std::string ppf_path
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 	/***********  shuffle ********************/
-	int goodPairsMax = 200;
 	start = std::chrono::high_resolution_clock::now();
 	std::random_shuffle(goodPairs.begin(), goodPairs.end());
 	finish = std::chrono::high_resolution_clock::now();

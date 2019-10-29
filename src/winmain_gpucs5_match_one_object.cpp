@@ -19,6 +19,7 @@ extern const int ppf_rot_discretization;
 extern const float validPairMinDist;
 
 extern const float lcp_distthreshold;
+extern const int goodPairsMax;
 
 // input parameters
 extern const std::string scene_scale;
@@ -179,7 +180,6 @@ int gpucs5(std::string scene_path, std::string object_path, std::string ppf_path
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 	/***********  shuffle ********************/
-	int goodPairsMax = 200;
 	start = std::chrono::high_resolution_clock::now();
 	std::random_shuffle(goodPairs.begin(), goodPairs.end());
 	finish = std::chrono::high_resolution_clock::now();
