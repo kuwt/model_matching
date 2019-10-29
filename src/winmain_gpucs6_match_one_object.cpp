@@ -645,7 +645,7 @@ int gpucs6(std::string scene_path, std::string object_path, std::string ppf_path
 		/**********
 		runtime
 		************/
-		for (int aa = 0; aa < 10; ++aa)
+		//for (int speedtestIdx = 0; speedtestIdx < 10; ++speedtestIdx)
 		{
 			start = std::chrono::high_resolution_clock::now();
 			for (int k = 0; k < numberOfBatch; ++k)

@@ -114,7 +114,8 @@ void compute_normal_pcl(PCLPointCloud::Ptr cloud,
 
 	  ne.setInputCloud(cloud_in);
 	  ne.setSearchMethod(tree);
-	  ne.setRadiusSearch(radius);
+	  //ne.setRadiusSearch(radius);
+	  ne.setKSearch(8);
 	  ne.compute(*cloud_normals);
 #pragma omp parallel for
 	  for (int i = 0; i < cloud->points.size(); i++)
@@ -123,16 +124,6 @@ void compute_normal_pcl(PCLPointCloud::Ptr cloud,
 		  cloud->points[i].normal_y = cloud_normals->points[i].normal_y;
 		  cloud->points[i].normal_z = cloud_normals->points[i].normal_z;
 	  }
-
-	/*
-	  pcl::NormalEstimation<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> ne;
-	  pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBNormal> ());
-  
-	  ne.setInputCloud (cloud);
-	  ne.setSearchMethod (tree);
-	  ne.setRadiusSearch (radius);
-	  ne.compute (*cloud);
-	  */
 }
 
 int ppf_closest_bin(int value, int discretization)
@@ -323,7 +314,16 @@ void load_xyzmap_data_sampled(
 	std::cout << "compute pointcloud from image in " 
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
-
+	/************** downsample cloud 1*******************/
+	start = std::chrono::high_resolution_clock::now();
+	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor0;
+	sor0.setInputCloud(cloud);
+	sor0.setLeafSize(voxel_size * 0.5, voxel_size * 0.5, voxel_size * 0.5 );
+	sor0.filter(*cloud);
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "down sample 1 in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 	/************** compute normal *******************/
 	start = std::chrono::high_resolution_clock::now();
 	rgbd::compute_normal_pcl(cloud, normal_radius);
@@ -331,7 +331,7 @@ void load_xyzmap_data_sampled(
 	std::cout << "compute normal in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
-	/************** downsample cloud *******************/
+	/************** downsample cloud 2*******************/
 	/*
 	start = std::chrono::high_resolution_clock::now();
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_Src_DN(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
@@ -350,12 +350,15 @@ void load_xyzmap_data_sampled(
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 		*/
-	
+	start = std::chrono::high_resolution_clock::now();
 	pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
 	sor.setInputCloud(cloud);
 	sor.setLeafSize(voxel_size, voxel_size, voxel_size);
 	sor.filter(*cloud);
-	
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "down sample 2 in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 	/************** remove outliner *******************/
 	start = std::chrono::high_resolution_clock::now();
 	pcl::RadiusOutlierRemoval<pcl::PointXYZRGBNormal> outrem;
@@ -369,6 +372,7 @@ void load_xyzmap_data_sampled(
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
+	start = std::chrono::high_resolution_clock::now();
 	for (auto pt : cloud->points)
 	{
 		typename Point3D::VectorType n;
@@ -377,6 +381,10 @@ void load_xyzmap_data_sampled(
 		n << pt.normal_x, pt.normal_y, pt.normal_z;
 		point3d.back().set_normal(n);
 	}
+	finish = std::chrono::high_resolution_clock::now();
+	std::cout << "fill points in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
 } // function: load_xyzmap_data_sampled
 
 void load_rgbd_data_sampled(std::string rgb_location,
