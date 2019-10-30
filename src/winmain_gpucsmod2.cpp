@@ -4,6 +4,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "model_match.cuh"
+#include <pcl/filters/voxel_grid.h>
 #include <memory>
 
 namespace fs = std::experimental::filesystem;
@@ -20,7 +21,7 @@ extern const int goodPairsMax;
 
 // input parameters
 extern const std::string scene_scale;
-
+extern const std::string model_scale;
 // running parameters
 extern const int batchSize;
 extern const int debug_flag;
@@ -112,7 +113,100 @@ public:
 	float *p_trans16;
 };
 
+class gpucsmod2_preprocess
+{
+public:
+	int run(std::string model_path, std::string dst_model_location, std::string dst_ppf_map_location)
+	{
+		std::cout << "Preprocessing ... "<< std::endl;
+		float inscale = 1.0;
+		if (model_scale == "m")
+		{
+			inscale = 1.0;
+		}
+		else if (model_scale == "mm")
+		{
+			inscale = 1.0 / 1000.0;
+		}
 
+		std::string src_model_location = model_path;
+		float read_depth_scale = inscale;
+		float write_depth_scale = 1.0;
+
+		
+		
+
+		/**********Load file ********************/
+		pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+		pcl::io::loadPLYFile(src_model_location, *cloud);
+
+		/********** compute normal ********************/
+		std::cout << "Compute Normal. " << std::endl;
+		rgbd::compute_normal_pcl(cloud, normal_radius);
+
+		//adding a negative sign. Reference frame is inside the object, so by default normals face inside.
+		for (int i = 0; i < cloud->points.size(); i++)
+		{
+			cloud->points[i].normal[0] = -cloud->points[i].normal[0];
+			cloud->points[i].normal[1] = -cloud->points[i].normal[1];
+			cloud->points[i].normal[2] = -cloud->points[i].normal[2];
+		}
+
+		std::cout << "downsample. " << std::endl;
+		/********** downsampling ********************/
+		pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
+		sor.setInputCloud(cloud);
+		sor.setLeafSize(ds_voxel_size, ds_voxel_size, ds_voxel_size);
+		sor.filter(*cloud);
+
+		/********** convert from pcl format to custom format ********************/
+		std::vector<Point3D> point3d_sampled;
+		rgbd::load_ply_model(cloud, point3d_sampled, read_depth_scale);
+		std::cout << "After sampling |M|= " << point3d_sampled.size() << std::endl;
+
+		/********** compute ppf pairs ********************/
+		std::map<std::vector<int>, std::vector<std::pair<int, int> > > local_ppf_map;
+		float max_distance = 0;
+		for (int id1 = 0; id1 < point3d_sampled.size(); id1++)
+		{
+			for (int id2 = 0; id2 < point3d_sampled.size(); id2++)
+			{
+				if (id1 == id2)
+				{
+					continue;
+				}
+				Point3D p1 = point3d_sampled[id1];
+				Point3D p2 = point3d_sampled[id2];
+
+				float dist = std::sqrt(
+					(p1.x() - p2.x()) * (p1.x() - p2.x())
+					+ (p1.y() - p2.y()) * (p1.y() - p2.y())
+					+ (p1.z() - p2.z()) * (p1.z() - p2.z()));
+
+				if (dist < validPairMinDist)
+				{
+					continue;
+				}
+
+				std::vector<int> ppf_;
+				rgbd::ppf_compute(point3d_sampled[id1], point3d_sampled[id2], ppf_tr_discretization, ppf_rot_discretization, ppf_);
+				rgbd::ppf_map_insert(local_ppf_map, ppf_, ppf_tr_discretization, ppf_rot_discretization, std::make_pair(id1, id2));
+
+				float d = (point3d_sampled[id1].pos() - point3d_sampled[id2].pos()).norm();
+				if (d > max_distance)
+				{
+					max_distance = d;
+				}
+			}
+		}
+
+		std::cout << "max distance is: " << max_distance << std::endl;
+
+		std::cout << "saving ppf map..." << std::endl;
+		rgbd::save_ppf_map(dst_ppf_map_location, local_ppf_map);
+		rgbd::save_as_ply(dst_model_location, point3d_sampled, write_depth_scale);
+	}
+};
 
 class gpucsmod2
 {
@@ -975,6 +1069,20 @@ int gpucsmod2::run(std::string scene_path)
 	return 0;
 }
 
+
+int gpucs8_preprocess(std::string model_path)
+{
+
+	std::shared_ptr<gpucsmod2_preprocess> p = std::make_shared< gpucsmod2_preprocess>();
+	auto start = std::chrono::high_resolution_clock::now();
+	p->run(model_path, "./model_search.ply","./ppf_map");
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::cout << "gpucs" << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
+
+	return 0;
+}
 
 int gpucs8(std::string scene_path, std::string object_path, std::string ppf_path)
 {
