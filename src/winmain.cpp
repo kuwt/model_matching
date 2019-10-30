@@ -6,6 +6,8 @@ extern int gpucs3(std::string scene_path, std::string object_path, std::string p
 extern int gpucs4(std::string scene_path, std::string object_path, std::string ppf_path);
 extern int gpucs5(std::string scene_path, std::string object_path, std::string ppf_path);
 extern int gpucs6(std::string scene_path, std::string object_path, std::string ppf_path);
+extern int gpucs7(std::string scene_path, std::string object_path, std::string ppf_path);
+
 extern int preprocess2(std::string model_path);
 int main(int argc, char** argv)
 {
@@ -13,15 +15,15 @@ int main(int argc, char** argv)
 
 	if (mode == 0)
 	{
-		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/o1/omodel.ply";
+		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/h1/hmodel.ply";
 		preprocess2(modelpath);
 	}
 	else
 	{
 		std::string modelpath = "./model_search.ply";
 		std::string ppfpath = "./ppf_map";
-		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/o1/";
-		gpucs6(scenePath, modelpath, ppfpath);
+		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/h6/";
+		gpucs7(scenePath, modelpath, ppfpath);
 	}
 }
 
@@ -32,7 +34,7 @@ extern int testBruteforceReg(std::string scene_path, std::string object_name);
 extern int gpucs(std::string scene_path, std::string object_name);
 extern int gpucs2(std::string scene_path, std::string object_name);
 
-0
+
 int oldapi()
 {
 	int mode = 4;

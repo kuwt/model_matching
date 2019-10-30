@@ -161,6 +161,8 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\include\point3d.hpp" />
+    <ClInclude Include="..\..\include\rgbd.hpp" />
     <ClInclude Include="..\..\src\imageFileIO.h" />
     <ClInclude Include="..\..\src\model_match.cuh" />
     <ClInclude Include="stdafx.h" />
@@ -175,6 +177,7 @@
     <ClCompile Include="..\..\src\winmain_gpucs4_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs5_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs6_match_one_object.cpp" />
+    <ClCompile Include="..\..\src\winmain_gpucsmod.cpp" />
     <ClCompile Include="..\..\src\winmain_preprocess2.cpp" />
     <ClCompile Include="stdafx.cpp" />
   </ItemGroup>
