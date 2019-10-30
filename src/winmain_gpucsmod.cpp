@@ -284,7 +284,7 @@ int gpucsmod::run(std::string scene_path)
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
-	std::cout << "use at most " << std::max(goodPairs.size(), (size_t)goodPairsMax) << " pairs.\n";
+	std::cout << "use at most " << std::min(goodPairs.size(), (size_t)goodPairsMax) << " pairs.\n";
 
 	/***********  calculate correspondences********************/
 	start = std::chrono::high_resolution_clock::now();

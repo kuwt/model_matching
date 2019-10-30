@@ -139,10 +139,7 @@ private:
 	float* m_d_pPointModelGPU;
 	float* m_d_pPointModelNormalGPU;
 	float* m_d_pPosesGPU_Batch;
-	int* m_pSrcId0_Batch;
-	int* m_pSrcId1_Batch;
-	int* m_pTarId0_Batch;
-	int* m_pTarId1_Batch;
+
 	int* m_d_pSrcId0_GPUBatch;
 	int* m_d_pSrcId1_GPUBatch;
 	int* m_d_pTarId0_GPUBatch;
@@ -152,7 +149,6 @@ private:
 	float* m_pPointModelBatch;
 	float* m_d_pPointModelGPUBatch;
 	float* m_d_pPointModelTransGPUBatch;
-	float* m_pPosesBatch;
 	int* m_d_ppointsValidsGPUBatch;
 	float* m_d_pLCPsGPUBatch;
 
@@ -174,17 +170,13 @@ gpucsmod2::~gpucsmod2()
 	cudaFree(m_d_pPointModelGPU);
 	cudaFree(m_d_pPointModelNormalGPU);
 	cudaFree(m_d_pPosesGPU_Batch);
-	delete[] m_pSrcId0_Batch;
-	delete[] m_pSrcId1_Batch;
-	delete[] m_pTarId0_Batch;
-	delete[] m_pTarId1_Batch;
+
 	cudaFree(m_d_pSrcId0_GPUBatch);
 	cudaFree(m_d_pSrcId1_GPUBatch);
 	cudaFree(m_d_pTarId0_GPUBatch);
 	cudaFree(m_d_pTarId1_GPUBatch);
 
 	//free resources for transform verify, need to add null check
-	delete[] m_pPosesBatch;
 	delete[] m_pPointModelBatch;
 	cudaFree(m_d_pPointModelGPUBatch);
 	cudaFree(m_d_pPointModelTransGPUBatch);
@@ -271,10 +263,6 @@ int gpucsmod2::init(std::string object_path, std::string ppf_path)
 
 	cudaMalloc((void**)&m_d_pPosesGPU_Batch, sizeof(float)* batchSize * 16);
 
-	m_pSrcId0_Batch = new int[batchSize];
-	m_pSrcId1_Batch = new int[batchSize];
-	m_pTarId0_Batch = new int[batchSize];
-	m_pTarId1_Batch = new int[batchSize];
 
 	cudaMalloc((void**)&m_d_pSrcId0_GPUBatch, sizeof(int)* batchSize);
 	cudaMalloc((void**)&m_d_pSrcId1_GPUBatch, sizeof(int)* batchSize);
@@ -286,7 +274,6 @@ int gpucsmod2::init(std::string object_path, std::string ppf_path)
 	m_pPointModelBatch = new float[number_of_points_model * 3 * batchSize];
 	cudaMalloc((void**)&m_d_pPointModelGPUBatch, sizeof(float)* number_of_points_model * 3 * batchSize);
 	cudaMalloc((void**)&m_d_pPointModelTransGPUBatch, sizeof(float)* number_of_points_model * 3 * batchSize);
-	m_pPosesBatch = new float[16 * batchSize];
 
 	cudaMalloc((void**)&m_d_ppointsValidsGPUBatch, sizeof(int)* number_of_points_model * batchSize);
 	cudaMalloc((void**)&m_d_pLCPsGPUBatch, sizeof(float)* batchSize);
@@ -391,7 +378,7 @@ int gpucsmod2::run(std::string scene_path)
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
-	std::cout << "use at most " << std::max(goodPairs.size(), (size_t)goodPairsMax) << " pairs.\n";
+	std::cout << "use at most " << std::min(goodPairs.size(), (size_t)goodPairsMax) << " pairs.\n";
 	
 	/***********  calculate correspondences********************/
 	start = std::chrono::high_resolution_clock::now();
@@ -511,15 +498,10 @@ int gpucsmod2::run(std::string scene_path)
 
 		for (int k = 0; k < numOfBatch; ++k)
 		{
-			memcpy(m_pSrcId0_Batch, allPoseEsts.p_srcId0 + k * batchSize, sizeof(int) *  batchSize);
-			memcpy(m_pSrcId1_Batch, allPoseEsts.p_srcId1 + k * batchSize, sizeof(int) *  batchSize);
-			memcpy(m_pTarId0_Batch, allPoseEsts.p_tarId0 + k * batchSize, sizeof(int) *  batchSize);
-			memcpy(m_pTarId1_Batch, allPoseEsts.p_tarId1 + k * batchSize, sizeof(int) *  batchSize);
-
-			cudaMemcpy(m_d_pSrcId0_GPUBatch, m_pSrcId0_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
-			cudaMemcpy(m_d_pSrcId1_GPUBatch, m_pSrcId1_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
-			cudaMemcpy(m_d_pTarId0_GPUBatch, m_pTarId0_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
-			cudaMemcpy(m_d_pTarId1_GPUBatch, m_pTarId1_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pSrcId0_GPUBatch, allPoseEsts.p_srcId0 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pSrcId1_GPUBatch, allPoseEsts.p_srcId1 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pTarId0_GPUBatch, allPoseEsts.p_tarId0 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pTarId1_GPUBatch, allPoseEsts.p_tarId1 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
 
 			ComputeTransformForCorrespondencesCU(
 				m_d_pPointModelGPU,
@@ -537,7 +519,6 @@ int gpucsmod2::run(std::string scene_path)
 			);
 			cudaMemcpy(allPoseEsts.p_trans16 + (k * batchSize * 16), m_d_pPosesGPU_Batch, sizeof(float) * batchSize * 16, cudaMemcpyDeviceToHost);
 		}
-
 
 		finish = std::chrono::high_resolution_clock::now();
 		std::cout << "calculate transform " << allPoseEsts.totalPoseSize << " in "
@@ -810,8 +791,7 @@ int gpucsmod2::run(std::string scene_path)
 			start = std::chrono::high_resolution_clock::now();
 			for (int k = 0; k < numOfBatch; ++k)
 			{
-				memcpy(m_pPosesBatch, allPoseEsts.p_trans16 + (k * batchSize * 16), sizeof(float) *  batchSize * 16);
-				cudaMemcpy(m_d_pPosesGPU_Batch, m_pPosesBatch, sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
+				cudaMemcpy(m_d_pPosesGPU_Batch, allPoseEsts.p_trans16 + (k * batchSize * 16), sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
 
 				TransformPointsCU(
 					m_d_pPointModelGPUBatch,
@@ -912,9 +892,7 @@ int gpucsmod2::run(std::string scene_path)
 		{
 			// assign pose to GPU
 			int currentPoseIdx = best_index;
-
-			memcpy(m_pPosesBatch, allPoseEsts.p_trans16 + (currentPoseIdx * 16), sizeof(float)* 16);
-			cudaMemcpy(m_d_pPosesGPU_Batch, m_pPosesBatch, sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pPosesGPU_Batch, allPoseEsts.p_trans16 + (currentPoseIdx * 16), sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
 
 			TransformPointsCU(
 				m_d_pPointModelGPUBatch,
