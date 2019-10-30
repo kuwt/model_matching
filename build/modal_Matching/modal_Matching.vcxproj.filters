@@ -66,6 +66,9 @@
     <ClCompile Include="..\..\src\winmain_gpucsmod2.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\winmain_convetXYZIsValidMap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="..\..\src\model_match.cu" />

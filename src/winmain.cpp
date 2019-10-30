@@ -9,22 +9,29 @@ extern int gpucs7(std::string scene_path, std::string object_path, std::string p
 extern int gpucs8_preprocess(std::string model_path);
 extern int gpucs8(std::string scene_path, std::string object_path, std::string ppf_path);
 
+extern void convetXYZIsValidMap(std::string scene_path, std::string object_name);
 
 int main(int argc, char** argv)
 {
-	int mode = 0;
+	int mode = 1;
 
 	if (mode == 0)
 	{
 		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/o1/omodel.ply";
 		gpucs8_preprocess(modelpath);
 	}
-	else
+	else if (mode == 1)
 	{
 		std::string modelpath = "./model_search.ply";
 		std::string ppfpath = "./ppf_map";
-		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/h6/";
+		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/bowl/";
 		gpucs8(scenePath, modelpath, ppfpath);
+	}
+	else
+	{
+		std::string object_name = "024_bowl";
+		std::string scenePath = "D:/ronaldwork/model_matching/examples/ycb";
+		convetXYZIsValidMap(scenePath, object_name);
 	}
 }
 
