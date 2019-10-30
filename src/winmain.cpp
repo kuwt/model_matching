@@ -3,10 +3,9 @@
 
 
 extern int gpucs3(std::string scene_path, std::string object_path, std::string ppf_path);
-extern int gpucs4(std::string scene_path, std::string object_path, std::string ppf_path);
-extern int gpucs5(std::string scene_path, std::string object_path, std::string ppf_path);
 extern int gpucs6(std::string scene_path, std::string object_path, std::string ppf_path);
 extern int gpucs7(std::string scene_path, std::string object_path, std::string ppf_path);
+extern int gpucs8(std::string scene_path, std::string object_path, std::string ppf_path);
 
 extern int preprocess2(std::string model_path);
 int main(int argc, char** argv)
@@ -15,7 +14,7 @@ int main(int argc, char** argv)
 
 	if (mode == 0)
 	{
-		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/h1/hmodel.ply";
+		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/o1/omodel.ply";
 		preprocess2(modelpath);
 	}
 	else
@@ -23,7 +22,7 @@ int main(int argc, char** argv)
 		std::string modelpath = "./model_search.ply";
 		std::string ppfpath = "./ppf_map";
 		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/h6/";
-		gpucs7(scenePath, modelpath, ppfpath);
+		gpucs8(scenePath, modelpath, ppfpath);
 	}
 }
 
