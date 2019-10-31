@@ -1,10 +1,14 @@
 #include <filesystem>
 #include <algorithm>
-#include "rgbd.hpp"
+#include <memory>
+#include <unordered_set>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <pcl/filters/voxel_grid.h>
+#include <opencv2/opencv.hpp>
+#include "rgbd.hpp"
 #include "model_match.cuh"
-#include <memory>
+#include "QuickHull/QuickHull.hpp"
 
 namespace fs = std::experimental::filesystem;
 
@@ -20,16 +24,461 @@ extern const int goodPairsMax;
 
 // input parameters
 extern const std::string scene_scale;
-
+extern const std::string model_scale;
 // running parameters
 extern const int batchSize;
 extern const int debug_flag;
 
-class gpucsmod
+class ppfMap
 {
 public:
-	gpucsmod();
-	~gpucsmod();
+	~ppfMap()
+	{
+		for (auto & x : m)
+		{
+			if (x.second.second.first != NULL)
+			{
+				delete[]x.second.second.first;
+				x.second.second.first = NULL;
+			}
+			if (x.second.second.second != NULL)
+			{
+				delete[]x.second.second.second;
+				x.second.second.second = NULL;
+			}
+			x.second.first = 0;
+		}
+	}
+
+	size_t size()
+	{
+		return m.size();
+	}
+
+	void Addppf(const std::vector<int> &ppf, int numOfElem, int*pId0, int*pId1)
+	{
+		std::pair<int*, int*> pairIdx = std::pair<int*, int*>(pId0, pId1);
+		std::pair<int, std::pair<int*, int*>> pairNumIdx = std::pair<int, std::pair<int*, int*>>(numOfElem, pairIdx);
+		m[ppf] = pairNumIdx;
+	}
+
+	int findppf(const std::vector<int> &ppf, int**ppId0, int**ppId1)
+	{
+		auto map_it = m.find(ppf);
+		if (map_it != m.end())
+		{
+			*ppId0 = map_it->second.second.first;
+			*ppId1 = map_it->second.second.second;
+			return map_it->second.first;
+		}
+		return 0;
+	}
+
+private:
+	std::map<std::vector<int>, std::pair<int, std::pair<int*, int*>> > m;
+};
+
+class ALL_POSE_ESTS
+{
+public:
+	~ALL_POSE_ESTS()
+	{
+		if (p_srcId0 != NULL)
+		{
+			delete[]p_srcId0;
+		}
+		if (p_srcId1 != NULL)
+		{
+			delete[]p_srcId1;
+		}
+		if (p_tarId0 != NULL)
+		{
+			delete[]p_tarId0;
+		}
+		if (p_tarId1 != NULL)
+		{
+			delete[]p_tarId1;
+		}
+		if (p_trans16 != NULL)
+		{
+			delete[]p_trans16;
+		}
+		totalPoseSize = 0;
+		totalComputeSize = 0;
+	}
+
+	int totalComputeSize;
+	int totalPoseSize;
+	int *p_srcId0;
+	int *p_srcId1;
+	int *p_tarId0;
+	int *p_tarId1;
+	float *p_trans16;
+};
+
+class gpucsmod2_preprocess
+{
+private: 
+	struct pt3D
+	{
+		float x;
+		float y;
+		float z;
+		pt3D(float _x, float _y, float _z)
+		{
+			x = _x;
+			y = _y;
+			z = _z;
+		}
+	};
+
+	int generateSpherePoints(int thetaPartition,
+		int phiPartition,
+		float radius,
+		std::vector<pt3D> &spherePoints)
+	{
+		spherePoints.clear();
+		auto isSamePt = [](pt3D p1, pt3D p2)
+		{
+			const float sqDistThd = 0.00001;
+			float sqdist = (p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y) + (p1.z - p2.z) * (p1.z - p2.z);
+			if (sqdist < sqDistThd)
+			{
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		};
+		std::vector<pt3D> ptlist;
+		for (int j = 0; j < phiPartition; j++)
+		{
+			for (int i = 0; i < thetaPartition; i++)
+			{
+				double theta = i * (2 * 3.1415926 / thetaPartition);
+				double phi = j * 3.1415926 / phiPartition;
+				double x = radius * sin(phi) * cos(theta);
+				double y = radius * sin(phi) * sin(theta);
+				double z = radius * cos(phi);
+
+				bool isPresentBefore = false;
+				for (int k = 0; k < ptlist.size(); ++k)
+				{
+					if (isSamePt(pt3D(x, y, z), ptlist[k]))
+					{
+						isPresentBefore = true;
+						break;
+					}
+				}
+
+				if (isPresentBefore == false)
+				{
+					ptlist.push_back(pt3D(x, y, z));
+				}
+			}
+		}
+		spherePoints = ptlist;
+		return 0;
+	}
+
+	const float convexHulleps = 0;
+	const float rparam = 3; // suggest by author
+	
+	int generateOuterPointCloudAndNormal(const cv::Mat &inputCloud, cv::Mat &outCloud, cv::Mat &OutNormal)
+	{
+		using namespace quickhull;
+
+		/****** generate view ports *******/
+		int thetaPartition = 3;
+		int phiPartition = 3;
+		float radius = 1;
+		std::vector<pt3D> viewpts;
+		generateSpherePoints(thetaPartition, phiPartition, radius, viewpts);
+
+		viewpts.clear();
+		viewpts.push_back(pt3D(0, 0, 1));
+		viewpts.push_back(pt3D(0, 0, -1));
+		cv::Mat src = inputCloud;
+		/************* compute isvalid points and use which view normal**************/
+		std::cout << "computing isvalid ...\n";
+		std::vector<bool> isValid(src.rows, false);
+		std::vector<float> minDistToViewPt(src.rows, 99999);
+		std::vector<int> useWhichNormal(src.rows, 0);
+		for (int viewIdx = 0; viewIdx < viewpts.size(); ++viewIdx)
+		{
+			float cx = viewpts[viewIdx].x;
+			float cy = viewpts[viewIdx].y;
+			float cz = viewpts[viewIdx].z;
+
+
+			/******** spherical flip ******/
+			int numpts = src.rows;
+			cv::Mat op = src.clone();
+
+			//Move C to the origin
+			for (int i = 0; i < op.rows; i++)
+			{
+				op.at<float>(i, 0) -= cx;
+				op.at<float>(i, 1) -= cy;
+				op.at<float>(i, 2) -= cz;
+			}
+
+			//Calculate max || p || and normp
+			cv::Mat normp = cv::Mat(op.rows, 1, CV_32FC1);
+			float maxNorm = 0;
+			for (int i = 0; i < op.rows; i++)
+			{
+				float norm =
+					sqrt(op.at<float>(i, 0) * op.at<float>(i, 0) +
+						op.at<float>(i, 1) * op.at<float>(i, 1) +
+						op.at<float>(i, 2) * op.at<float>(i, 2));
+				normp.at<float>(i, 0) = norm;
+				if (norm > maxNorm)
+				{
+					maxNorm = norm;
+				}
+			}
+
+			float R = maxNorm * pow(10.0, rparam);
+
+			for (int i = 0; i < op.rows; i++)
+			{
+				op.at<float>(i, 0) += 2 * (R - normp.at<float>(i, 0)) *op.at<float>(i, 0) / normp.at<float>(i, 0);
+				op.at<float>(i, 1) += 2 * (R - normp.at<float>(i, 0)) *op.at<float>(i, 1) / normp.at<float>(i, 0);
+				op.at<float>(i, 2) += 2 * (R - normp.at<float>(i, 0)) *op.at<float>(i, 2) / normp.at<float>(i, 0);
+			}
+
+			std::vector<Vector3<float>> pointCloud;
+			/****** QHULL *******/
+			cv::Mat qhull_src = op;
+			QuickHull<float> qh; // Could be double as well
+
+			for (int i = 0; i < qhull_src.rows; i++)
+			{
+				Vector3<float> pt;
+				pt.x = qhull_src.at<float>(i, 0);
+				pt.y = qhull_src.at<float>(i, 1);
+				pt.z = qhull_src.at<float>(i, 2);
+				pointCloud.push_back(pt);
+			}
+
+			/************* add zero last **************/
+			Vector3<float> pt;
+			pt.x = 0;
+			pt.y = 0;
+			pt.z = 0;
+			pointCloud.push_back(pt);
+
+			/************* convex Hull **************/
+			auto hull = qh.getConvexHull(pointCloud, true, true, convexHulleps);
+			auto idx = hull.getIndexBuffer();
+
+			/************* unique **************/
+			std::unordered_set<size_t> u(idx.begin(), idx.end());
+
+			/****** assign isvalid *******/
+			std::unordered_set<size_t> ::iterator itr;
+			for (itr = u.begin(); itr != u.end(); itr++)
+			{
+				size_t idx = *itr;
+				if (idx < src.rows)
+				{
+					isValid[idx] = true;
+					float dist = (inputCloud.at<float>(idx, 0) - cx) *(inputCloud.at<float>(idx, 0) - cx)
+						+ (inputCloud.at<float>(idx, 1) - cy) *(inputCloud.at<float>(idx, 0) - cy)
+						+ (inputCloud.at<float>(idx, 2) - cz) *(inputCloud.at<float>(idx, 0) - cz);
+					if (dist < minDistToViewPt[idx])
+					{
+						minDistToViewPt[idx] = dist;
+						useWhichNormal[idx] = viewIdx;
+					}
+				}
+			}
+		}
+
+		/********** compute the normals********************/
+		std::cout << "computing normals ...\n";
+		pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_Src(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+		{
+			cloud_Src->width = 1;
+			cloud_Src->height = inputCloud.rows;
+			cloud_Src->is_dense = false;
+			cloud_Src->points.resize(cloud_Src->width * cloud_Src->height);
+
+			for (size_t i = 0; i < cloud_Src->points.size(); ++i)
+			{
+
+				cloud_Src->points[i].x = (float)inputCloud.at<float>(i, 0);
+				cloud_Src->points[i].y = (float)inputCloud.at<float>(i, 1);
+				cloud_Src->points[i].z = (float)inputCloud.at<float>(i, 2);
+			}
+		}
+		rgbd::compute_normal_pcl(cloud_Src, normal_radius);
+
+		
+		/****** normal view port consistent check and out point *******/
+		std::cout << "normal view port consistent check ...\n";
+		int number = 0;
+		for (auto& n : isValid)
+		{
+			number += n;
+		}
+		cv::Mat outpts = cv::Mat(number, 3, CV_32FC1);
+		cv::Mat outNorms = cv::Mat(number, 3, CV_32FC1);
+		int count = 0;
+		for (int i = 0; i < src.rows; ++i)
+		{
+			if (isValid[i] == true)
+			{
+				outpts.at<float>(count, 0) = src.at<float>(i, 0);
+				outpts.at<float>(count, 1) = src.at<float>(i, 1);
+				outpts.at<float>(count, 2) = src.at<float>(i, 2);
+				
+				float cx = viewpts[useWhichNormal[i]].x;
+				float cy = viewpts[useWhichNormal[i]].y;
+				float cz = viewpts[useWhichNormal[i]].z;
+
+				float value = cloud_Src->points[i].normal[0] * (cx - src.at<float>(i, 0))
+					+ cloud_Src->points[i].normal[1] * (cy - src.at<float>(i, 1))
+					+ cloud_Src->points[i].normal[2] * (cz - src.at<float>(i, 2));
+				
+				if (value > 0)
+				{ 
+					outNorms.at<float>(count, 0) = cloud_Src->points[i].normal[0];
+					outNorms.at<float>(count, 1) = cloud_Src->points[i].normal[1];
+					outNorms.at<float>(count, 2) = cloud_Src->points[i].normal[2];
+				}
+				else
+				{
+					outNorms.at<float>(count, 0) = -cloud_Src->points[i].normal[0];
+					outNorms.at<float>(count, 1) = -cloud_Src->points[i].normal[1];
+					outNorms.at<float>(count, 2) = -cloud_Src->points[i].normal[2];
+				}
+				count++;
+			}
+		}
+		outCloud = outpts;
+		OutNormal = outNorms;
+		
+		return 0;
+	}
+
+public:
+	int run(std::string model_path, std::string dst_model_location, std::string dst_ppf_map_location)
+	{
+		std::cout << "Preprocessing ... "<< std::endl;
+		float inscale = 1.0;
+		if (model_scale == "m")
+		{
+			inscale = 1.0;
+		}
+		else if (model_scale == "mm")
+		{
+			inscale = 1.0 / 1000.0;
+		}
+
+		std::string src_model_location = model_path;
+		float read_depth_scale = inscale;
+		float write_depth_scale = 1.0;
+
+		/**********Load file ********************/
+		pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+		pcl::io::loadPLYFile(src_model_location, *cloud);
+
+		/********** generate OuterPointCloud ********************/
+		cv::Mat inputCloud = cv::Mat(cloud->points.size(),3, CV_32FC1);
+		for (int i = 0; i < cloud->points.size(); i++)
+		{
+			inputCloud.at<float>(i, 0) = cloud->points[i].x;
+			inputCloud.at<float>(i, 1) = cloud->points[i].y;
+			inputCloud.at<float>(i, 2) = cloud->points[i].z;
+		}
+		cv::Mat outerCloud;
+		cv::Mat outerNormal;
+		generateOuterPointCloudAndNormal(inputCloud, outerCloud, outerNormal);
+
+		cloud->clear();
+		cloud->width = 1;
+		cloud->height = outerCloud.rows;
+		cloud->is_dense = false;
+		cloud->points.resize(cloud->width * cloud->height);
+
+		for (size_t i = 0; i < cloud->points.size(); ++i)
+		{
+			cloud->points[i].x = (float)outerCloud.at<float>(i, 0);
+			cloud->points[i].y = (float)outerCloud.at<float>(i, 1);
+			cloud->points[i].z = (float)outerCloud.at<float>(i, 2);
+			cloud->points[i].normal[0] = (float)outerNormal.at<float>(i, 0);
+			cloud->points[i].normal[1] = (float)outerNormal.at<float>(i, 1);
+			cloud->points[i].normal[2] = (float)outerNormal.at<float>(i, 2);
+		}
+		pcl::io::savePLYFile("./OuterPointsAndNormalOutwards.ply", *cloud);
+
+		
+		/********** downsampling ********************/
+		std::cout << "downsample. " << std::endl;
+		pcl::VoxelGrid<pcl::PointXYZRGBNormal> sor;
+		sor.setInputCloud(cloud);
+		sor.setLeafSize(ds_voxel_size, ds_voxel_size, ds_voxel_size);
+		sor.filter(*cloud);
+
+		pcl::io::savePLYFile("./OuterPointsAndNormalOutwards_DSample.ply", *cloud);
+		/********** convert from pcl format to custom format ********************/
+		std::vector<Point3D> point3d_sampled;
+		rgbd::load_ply_model(cloud, point3d_sampled, read_depth_scale);
+		std::cout << "After sampling |M|= " << point3d_sampled.size() << std::endl;
+
+		/********** compute ppf pairs ********************/
+		std::map<std::vector<int>, std::vector<std::pair<int, int> > > local_ppf_map;
+		float max_distance = 0;
+		for (int id1 = 0; id1 < point3d_sampled.size(); id1++)
+		{
+			for (int id2 = 0; id2 < point3d_sampled.size(); id2++)
+			{
+				if (id1 == id2)
+				{
+					continue;
+				}
+				Point3D p1 = point3d_sampled[id1];
+				Point3D p2 = point3d_sampled[id2];
+
+				float dist = std::sqrt(
+					(p1.x() - p2.x()) * (p1.x() - p2.x())
+					+ (p1.y() - p2.y()) * (p1.y() - p2.y())
+					+ (p1.z() - p2.z()) * (p1.z() - p2.z()));
+
+				if (dist < validPairMinDist)
+				{
+					continue;
+				}
+
+				std::vector<int> ppf_;
+				rgbd::ppf_compute(point3d_sampled[id1], point3d_sampled[id2], ppf_tr_discretization, ppf_rot_discretization, ppf_);
+				rgbd::ppf_map_insert(local_ppf_map, ppf_, ppf_tr_discretization, ppf_rot_discretization, std::make_pair(id1, id2));
+
+				float d = (point3d_sampled[id1].pos() - point3d_sampled[id2].pos()).norm();
+				if (d > max_distance)
+				{
+					max_distance = d;
+				}
+			}
+		}
+
+		std::cout << "max distance is: " << max_distance << std::endl;
+
+		std::cout << "saving ppf map..." << std::endl;
+		rgbd::save_ppf_map(dst_ppf_map_location, local_ppf_map);
+		rgbd::save_as_ply(dst_model_location, point3d_sampled, write_depth_scale);
+		return 0;
+	}
+};
+
+class gpucsmod3
+{
+public:
+	gpucsmod3();
+	~gpucsmod3();
 	int init(std::string object_path, std::string ppf_path);
 	int run(std::string scene_path);
 private:
@@ -42,7 +491,7 @@ private:
 
 	// general resources
 	std::vector<Point3D> m_point3d_model;
-	PPFMapType m_model_map;
+	ppfMap m_model_map;
 
 	// resources for transform computing
 	float* m_pPointModel;
@@ -50,10 +499,7 @@ private:
 	float* m_d_pPointModelGPU;
 	float* m_d_pPointModelNormalGPU;
 	float* m_d_pPosesGPU_Batch;
-	int* m_pSrcId0_Batch;
-	int* m_pSrcId1_Batch;
-	int* m_pTarId0_Batch;
-	int* m_pTarId1_Batch;
+
 	int* m_d_pSrcId0_GPUBatch;
 	int* m_d_pSrcId1_GPUBatch;
 	int* m_d_pTarId0_GPUBatch;
@@ -63,19 +509,18 @@ private:
 	float* m_pPointModelBatch;
 	float* m_d_pPointModelGPUBatch;
 	float* m_d_pPointModelTransGPUBatch;
-	float* m_pPosesBatch;
 	int* m_d_ppointsValidsGPUBatch;
 	float* m_d_pLCPsGPUBatch;
 
 };
 
 
-gpucsmod::gpucsmod()
+gpucsmod3::gpucsmod3()
 {
 	isInited = false;
 }
 
-gpucsmod::~gpucsmod()
+gpucsmod3::~gpucsmod3()
 {
 	isInited = false;
 
@@ -85,24 +530,20 @@ gpucsmod::~gpucsmod()
 	cudaFree(m_d_pPointModelGPU);
 	cudaFree(m_d_pPointModelNormalGPU);
 	cudaFree(m_d_pPosesGPU_Batch);
-	delete[] m_pSrcId0_Batch;
-	delete[] m_pSrcId1_Batch;
-	delete[] m_pTarId0_Batch;
-	delete[] m_pTarId1_Batch;
+
 	cudaFree(m_d_pSrcId0_GPUBatch);
 	cudaFree(m_d_pSrcId1_GPUBatch);
 	cudaFree(m_d_pTarId0_GPUBatch);
 	cudaFree(m_d_pTarId1_GPUBatch);
 
 	//free resources for transform verify, need to add null check
-	delete[] m_pPosesBatch;
 	delete[] m_pPointModelBatch;
 	cudaFree(m_d_pPointModelGPUBatch);
 	cudaFree(m_d_pPointModelTransGPUBatch);
 	cudaFree(m_d_pLCPsGPUBatch);
 }
 
-int gpucsmod::init(std::string object_path, std::string ppf_path)
+int gpucsmod3::init(std::string object_path, std::string ppf_path)
 {
 	if (isInited == true)
 	{
@@ -117,9 +558,27 @@ int gpucsmod::init(std::string object_path, std::string ppf_path)
 
 	auto start = std::chrono::high_resolution_clock::now();
 	/***********  load PPF map ********************/
-	m_model_map.clear();
-	rgbd::load_ppf_map(model_map_path, m_model_map);
+	{
+		PPFMapType map;
+		rgbd::load_ppf_map(model_map_path, map);
 
+		for (auto & x : map)
+		{
+			int numOfelem = x.second.size();
+			int *pId0 = new int[numOfelem];
+			int *pId1 = new int[numOfelem];
+			for (int i = 0; i < numOfelem; ++i)
+			{
+				pId0[i] = x.second[i].first;
+			}
+			for (int i = 0; i < numOfelem; ++i)
+			{
+				pId1[i] = x.second[i].second;
+			}
+
+			m_model_map.Addppf(x.first, numOfelem, pId0, pId1);
+		}
+	}
 	/********** load model ********************************/
 	m_point3d_model.clear();
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
@@ -164,10 +623,6 @@ int gpucsmod::init(std::string object_path, std::string ppf_path)
 
 	cudaMalloc((void**)&m_d_pPosesGPU_Batch, sizeof(float)* batchSize * 16);
 
-	m_pSrcId0_Batch = new int[batchSize];
-	m_pSrcId1_Batch = new int[batchSize];
-	m_pTarId0_Batch = new int[batchSize];
-	m_pTarId1_Batch = new int[batchSize];
 
 	cudaMalloc((void**)&m_d_pSrcId0_GPUBatch, sizeof(int)* batchSize);
 	cudaMalloc((void**)&m_d_pSrcId1_GPUBatch, sizeof(int)* batchSize);
@@ -179,7 +634,6 @@ int gpucsmod::init(std::string object_path, std::string ppf_path)
 	m_pPointModelBatch = new float[number_of_points_model * 3 * batchSize];
 	cudaMalloc((void**)&m_d_pPointModelGPUBatch, sizeof(float)* number_of_points_model * 3 * batchSize);
 	cudaMalloc((void**)&m_d_pPointModelTransGPUBatch, sizeof(float)* number_of_points_model * 3 * batchSize);
-	m_pPosesBatch = new float[16 * batchSize];
 
 	cudaMalloc((void**)&m_d_ppointsValidsGPUBatch, sizeof(int)* number_of_points_model * batchSize);
 	cudaMalloc((void**)&m_d_pLCPsGPUBatch, sizeof(float)* batchSize);
@@ -203,7 +657,7 @@ int gpucsmod::init(std::string object_path, std::string ppf_path)
 	return 0;
 }
 
-int gpucsmod::run(std::string scene_path)
+int gpucsmod3::run(std::string scene_path)
 {
 	std::string x_location = scene_path + "/XMap.tif";
 	std::string y_location = scene_path + "/YMap.tif";
@@ -286,19 +740,20 @@ int gpucsmod::run(std::string scene_path)
 		<< " milliseconds\n";
 
 	std::cout << "use at most " << std::min(goodPairs.size(), (size_t)goodPairsMax) << " pairs.\n";
-
+	
 	/***********  calculate correspondences********************/
 	start = std::chrono::high_resolution_clock::now();
-	struct poseEst
+	
+	struct CORRESPONDENCE 
 	{
-		int srcId[2];
-		int tarId[2];
-		int ppf[4];
-		Eigen::Matrix<float, 4, 4> trans44;
-		float lcp;
+		int tarId0;
+		int tarId1;
+		int numOfElem;
+		int *srcId0;
+		int *srcId1;
 	};
-
-	std::vector<poseEst> poseEsts;
+	size_t numOfTotalPose = 0;
+	std::vector<CORRESPONDENCE> tmpS;
 	for (int i = 0; i < goodPairs.size() && i < goodPairsMax; i++)
 	{
 		int firstIdx = goodPairs.at(i).first;
@@ -312,68 +767,69 @@ int gpucsmod::run(std::string scene_path)
 			ppf_rot_discretization,
 			ppf);
 
-		auto map_it = m_model_map.find(ppf);
-		if (map_it != m_model_map.end())
+		int *pId0;
+		int *pId1;
+		int numOfElem = m_model_map.findppf(ppf, &pId0, &pId1);
+		if (numOfElem > 0)
 		{
-			std::vector<std::pair<int, int> > &v = map_it->second;
-			for (int k = 0; k < v.size(); k++)
-			{
-				poseEst e;
-				e.srcId[0] = v[k].first;  // model
-				e.srcId[1] = v[k].second;
-				e.tarId[0] = firstIdx; // scene
-				e.tarId[1] = secondIdx;
-				e.ppf[0] = ppf[0];
-				e.ppf[1] = ppf[1];
-				e.ppf[2] = ppf[2];
-				e.ppf[3] = ppf[3];
-				poseEsts.push_back(e);
-			}
+			CORRESPONDENCE s;
+			s.numOfElem = numOfElem;
+			s.tarId0 = firstIdx;
+			s.tarId1 = secondIdx;
+			s.srcId0 = pId0;
+			s.srcId1 = pId1;
+			tmpS.push_back(s);
+			numOfTotalPose += numOfElem;
 		}
 	}
 
+	/*********** assign ALL_POSE_ESTS ********************/
+	ALL_POSE_ESTS allPoseEsts;
+	int numOfBatch = numOfTotalPose / batchSize + 1;
+	int totalPoseSize = numOfTotalPose;
+	int totalComputeSize = numOfBatch * batchSize;
+	std::cout << "numberOfBatch = " << numOfBatch << "\n";
+	std::cout << "BatchSize = " << batchSize << "\n";
+	std::cout << "totalPoseSize = " << totalPoseSize << "\n";
+	std::cout << "totalComputeSize = " << totalComputeSize << "\n";
+
+	allPoseEsts.totalComputeSize = totalComputeSize;
+	allPoseEsts.totalPoseSize = numOfTotalPose;
+	allPoseEsts.p_srcId0 = new int[totalComputeSize];
+	allPoseEsts.p_srcId1 = new int[totalComputeSize];
+	allPoseEsts.p_tarId0 = new int[totalComputeSize];
+	allPoseEsts.p_tarId1 = new int[totalComputeSize];
+	allPoseEsts.p_trans16 = new float[totalComputeSize * 16];
+
+	memset(allPoseEsts.p_srcId0, 0, sizeof(int) *totalComputeSize);
+	memset(allPoseEsts.p_srcId1, 0, sizeof(int) *totalComputeSize);
+	memset(allPoseEsts.p_tarId0, 0, sizeof(int) *totalComputeSize);
+	memset(allPoseEsts.p_tarId1, 0, sizeof(int) *totalComputeSize);
+	memset(allPoseEsts.p_trans16, 0, sizeof(float) *totalComputeSize * 16);
+
+	size_t startcount = 0;
+	for (int i = 0; i < tmpS.size(); ++i)
+	{
+		int numOfElem = tmpS[i].numOfElem;
+		memcpy(allPoseEsts.p_srcId0 + startcount, tmpS[i].srcId0, sizeof(int) *  numOfElem);
+		memcpy(allPoseEsts.p_srcId1 + startcount, tmpS[i].srcId1, sizeof(int) *  numOfElem);
+		std::vector<int> vtarId0(numOfElem, tmpS[i].tarId0);
+		std::vector<int> vtarId1(numOfElem, tmpS[i].tarId1);
+		memcpy(allPoseEsts.p_tarId0 + startcount, &vtarId0[0], sizeof(int) *  numOfElem);
+		memcpy(allPoseEsts.p_tarId1 + startcount, &vtarId1[0], sizeof(int) *  numOfElem);
+		startcount += tmpS[i].numOfElem;
+	}
+	
 	finish = std::chrono::high_resolution_clock::now();
-	std::cout << "calculate correspondences " << poseEsts.size() << " in "
+	std::cout << "calculate correspondences " << numOfTotalPose << " in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
-	// save readable format
-	if (debug_flag == 1)
-	{
-		std::string locationReadable;
-		locationReadable = debug_path + "/ppfCorrespondences.txt";
-		std::FILE* f = std::fopen(locationReadable.c_str(), "w");
-		for (int i = 0; i < poseEsts.size(); ++i)
-		{
-			std::fprintf(f, "%d %d %d %d : <%d,%d> : <%d,%d> \n",
-				poseEsts.at(i).ppf[0],
-				poseEsts.at(i).ppf[1],
-				poseEsts.at(i).ppf[2],
-				poseEsts.at(i).ppf[3],
-				poseEsts.at(i).srcId[0],
-				poseEsts.at(i).srcId[1],
-				poseEsts.at(i).tarId[0],
-				poseEsts.at(i).tarId[1]);
-		}
-		std::fclose(f);
-	}
-
 	/***********  calculate transform for each ppf correspondences ********************/
 	{
-		int numOfBatch = poseEsts.size() / batchSize + 1;
-		int totalPoseSize = poseEsts.size();
-		int totalComputeSize = numOfBatch * batchSize;
-		std::cout << "numberOfBatch = " << numOfBatch << "\n";
-		std::cout << "BatchSize = " << batchSize << "\n";
-		std::cout << "totalPoseSize = " << totalPoseSize << "\n";
-		std::cout << "totalComputeSize = " << totalComputeSize << "\n";
-
 		/***  allocate memory ***/
-		float* pAllPoses = new float[16 * totalComputeSize];
-		memset(pAllPoses, 0, sizeof(float) * 16 * totalComputeSize);
 
 		size_t number_of_points_model = m_point3d_model.size();
-
 		size_t number_of_points_scene = point3d_scene.size();
 		float* pPointScene = new float[number_of_points_scene * 3];
 		for (int i = 0; i < number_of_points_scene; i++)
@@ -403,21 +859,10 @@ int gpucsmod::run(std::string scene_path)
 
 		for (int k = 0; k < numOfBatch; ++k)
 		{
-			for (int i = 0; i < batchSize; ++i)
-			{
-				int currentPoseIdx = k * batchSize + i;
-				if (currentPoseIdx < totalPoseSize)
-				{
-					m_pSrcId0_Batch[i] = poseEsts.at(k * batchSize + i).srcId[0];
-					m_pSrcId1_Batch[i] = poseEsts.at(k * batchSize + i).srcId[1];
-					m_pTarId0_Batch[i] = poseEsts.at(k * batchSize + i).tarId[0];
-					m_pTarId1_Batch[i] = poseEsts.at(k * batchSize + i).tarId[1];
-				}
-			}
-			cudaMemcpy(m_d_pSrcId0_GPUBatch, m_pSrcId0_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
-			cudaMemcpy(m_d_pSrcId1_GPUBatch, m_pSrcId1_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
-			cudaMemcpy(m_d_pTarId0_GPUBatch, m_pTarId0_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
-			cudaMemcpy(m_d_pTarId1_GPUBatch, m_pTarId1_Batch, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pSrcId0_GPUBatch, allPoseEsts.p_srcId0 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pSrcId1_GPUBatch, allPoseEsts.p_srcId1 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pTarId0_GPUBatch, allPoseEsts.p_tarId0 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pTarId1_GPUBatch, allPoseEsts.p_tarId1 + k * batchSize, sizeof(int)* batchSize, cudaMemcpyHostToDevice);
 
 			ComputeTransformForCorrespondencesCU(
 				m_d_pPointModelGPU,
@@ -433,34 +878,18 @@ int gpucsmod::run(std::string scene_path)
 				batchSize,
 				m_d_pPosesGPU_Batch
 			);
-			cudaMemcpy(pAllPoses + (k * batchSize * 16), m_d_pPosesGPU_Batch, sizeof(float) * batchSize * 16, cudaMemcpyDeviceToHost);
+			cudaMemcpy(allPoseEsts.p_trans16 + (k * batchSize * 16), m_d_pPosesGPU_Batch, sizeof(float) * batchSize * 16, cudaMemcpyDeviceToHost);
 		}
 
-
 		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "calculate transform " << poseEsts.size() << " in "
+		std::cout << "calculate transform " << allPoseEsts.totalPoseSize << " in "
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 			<< " milliseconds\n";
 
-		for (int i = 0; i < totalPoseSize; ++i)
-		{
-			Eigen::Matrix<float, 4, 4> trans44;
-
-			trans44 <<
-				pAllPoses[i * 16 + 0], pAllPoses[i * 16 + 1], pAllPoses[i * 16 + 2], pAllPoses[i * 16 + 3],
-				pAllPoses[i * 16 + 4], pAllPoses[i * 16 + 5], pAllPoses[i * 16 + 6], pAllPoses[i * 16 + 7],
-				pAllPoses[i * 16 + 8], pAllPoses[i * 16 + 9], pAllPoses[i * 16 + 10], pAllPoses[i * 16 + 11],
-				pAllPoses[i * 16 + 12], pAllPoses[i * 16 + 13], pAllPoses[i * 16 + 14], pAllPoses[i * 16 + 15];
-
-			poseEsts.at(i).trans44 = trans44;
-		}
-
-		
 		delete[] pPointScene;
 		delete[] pPointSceneNormal;
 		cudaFree(d_pPointSceneGPU);
 		cudaFree(d_pPointSceneNormalGPU);
-		delete[] pAllPoses;
 	}
 
 	if (debug_flag == 1)
@@ -469,13 +898,13 @@ int gpucsmod::run(std::string scene_path)
 		path = debug_path + "/transformations.txt";
 		std::FILE* f = std::fopen(path.c_str(), "w");
 
-		for (int i = 0; i < poseEsts.size(); ++i)
+		for (int i = 0; i < allPoseEsts.totalPoseSize; ++i)
 		{
 			std::fprintf(f, "%.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
-				poseEsts[i].trans44(0, 0), poseEsts[i].trans44(0, 1), poseEsts[i].trans44(0, 2), poseEsts[i].trans44(0, 3),
-				poseEsts[i].trans44(1, 0), poseEsts[i].trans44(1, 1), poseEsts[i].trans44(1, 2), poseEsts[i].trans44(1, 3),
-				poseEsts[i].trans44(2, 0), poseEsts[i].trans44(2, 1), poseEsts[i].trans44(2, 2), poseEsts[i].trans44(2, 3),
-				poseEsts[i].trans44(3, 0), poseEsts[i].trans44(3, 1), poseEsts[i].trans44(3, 2), poseEsts[i].trans44(3, 3)
+				allPoseEsts.p_trans16[i * 16 + 0], allPoseEsts.p_trans16[i * 16 + 1], allPoseEsts.p_trans16[i * 16 + 2], allPoseEsts.p_trans16[i * 16 + 3],
+				allPoseEsts.p_trans16[i * 16 + 4], allPoseEsts.p_trans16[i * 16 + 5], allPoseEsts.p_trans16[i * 16 + 6], allPoseEsts.p_trans16[i * 16 + 7],
+				allPoseEsts.p_trans16[i * 16 + 8], allPoseEsts.p_trans16[i * 16 + 9], allPoseEsts.p_trans16[i * 16 + 10], allPoseEsts.p_trans16[i * 16 + 11],
+				allPoseEsts.p_trans16[i * 16 + 12], allPoseEsts.p_trans16[i * 16 + 13], allPoseEsts.p_trans16[i * 16 + 14], allPoseEsts.p_trans16[i * 16 + 15]
 			);
 		}
 		std::fclose(f);
@@ -714,33 +1143,17 @@ int gpucsmod::run(std::string scene_path)
 		cudaMalloc((void**)&d_p_partitionNumber, sizeof(int) * 3);
 		cudaMemcpy(d_p_partitionNumber, p_partitionNumber, sizeof(int) * 3, cudaMemcpyHostToDevice);
 
-		int numberOfBatch = poseEsts.size() / batchSize + 1;
-		int totalPoseNum = poseEsts.size();
-		int totalComputeNum = numberOfBatch * batchSize;
-		float* pLCPs = new float[totalComputeNum];
-		memset(pLCPs, 0, sizeof(float) * totalComputeNum);
+		float* pLCPs = new float[totalComputeSize];
+		memset(pLCPs, 0, sizeof(float) * totalComputeSize);
 
 		size_t number_of_points_model = m_point3d_model.size();
 		/***  run ***/
 		{
 			start = std::chrono::high_resolution_clock::now();
-			for (int k = 0; k < numberOfBatch; ++k)
+			for (int k = 0; k < numOfBatch; ++k)
 			{
-				// assign pose to GPU
-				for (int j = 0; j < batchSize; ++j)
-				{
-					int currentPoseIdx = k * batchSize + j;
-					if (currentPoseIdx < totalPoseNum)
-					{
-						for (int i = 0; i < 16; i++)
-						{
-							int row = i / 4;
-							int col = i % 4;
-							m_pPosesBatch[j * 16 + i] = poseEsts[k * batchSize + j].trans44(row, col);
-						}
-					}
-				}
-				cudaMemcpy(m_d_pPosesGPU_Batch, m_pPosesBatch, sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
+				cudaMemcpy(m_d_pPosesGPU_Batch, allPoseEsts.p_trans16 + (k * batchSize * 16), sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
+
 				TransformPointsCU(
 					m_d_pPointModelGPUBatch,
 					number_of_points_model,
@@ -774,14 +1187,14 @@ int gpucsmod::run(std::string scene_path)
 				cudaMemcpy(pLCPs + (k * batchSize), m_d_pLCPsGPUBatch, sizeof(float) * batchSize, cudaMemcpyDeviceToHost);
 			}
 
-			float* maxAddr = std::max_element(pLCPs, pLCPs + totalPoseNum);
+			float* maxAddr = std::max_element(pLCPs, pLCPs + allPoseEsts.totalPoseSize);
 			int maxLCPIdx = std::distance(pLCPs, maxAddr);
 			std::cout << "max LCP at: " << maxLCPIdx << " , LCP = " << pLCPs[maxLCPIdx] << '\n';
 
 			best_index = maxLCPIdx;
 
 			finish = std::chrono::high_resolution_clock::now();
-			std::cout << "verify transform " << poseEsts.size() << " in "
+			std::cout << "verify transform " << allPoseEsts.totalPoseSize << " in "
 				<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 				<< " milliseconds\n";
 		}
@@ -791,7 +1204,7 @@ int gpucsmod::run(std::string scene_path)
 			path = debug_path + "/LCP.txt";
 			std::FILE* f = std::fopen(path.c_str(), "w");
 
-			for (int i = 0; i < totalPoseNum; ++i)
+			for (int i = 0; i < allPoseEsts.totalPoseSize; ++i)
 			{
 				std::fprintf(f, "%f\n", pLCPs[i]);
 			}
@@ -802,26 +1215,30 @@ int gpucsmod::run(std::string scene_path)
 		/***********  show best pose  ********************/
 		{
 			std::vector<Point3D> point3d_model_pose;
-
-			point3d_model_pose.clear();
-			//rgbd::transform_pointset(point3d_model, point3d_model_pose, poseEsts[best_index].trans44);
+			
+			Eigen::Matrix<float, 4, 4> trans44;
+			trans44 <<
+				allPoseEsts.p_trans16[best_index * 16 + 0], allPoseEsts.p_trans16[best_index * 16 + 1], allPoseEsts.p_trans16[best_index * 16 + 2], allPoseEsts.p_trans16[best_index * 16 + 3],
+				allPoseEsts.p_trans16[best_index * 16 + 4], allPoseEsts.p_trans16[best_index * 16 + 5], allPoseEsts.p_trans16[best_index * 16 + 6], allPoseEsts.p_trans16[best_index * 16 + 7],
+				allPoseEsts.p_trans16[best_index * 16 + 8], allPoseEsts.p_trans16[best_index * 16 + 9], allPoseEsts.p_trans16[best_index * 16 + 10], allPoseEsts.p_trans16[best_index * 16 + 11],
+				allPoseEsts.p_trans16[best_index * 16 + 12], allPoseEsts.p_trans16[best_index * 16 + 13], allPoseEsts.p_trans16[best_index * 16 + 14], allPoseEsts.p_trans16[best_index * 16 + 15];
 
 			std::cout << "best pose trans44 = \n";
 			char buffer[1024];
 			snprintf(buffer, 1024, "%.3f %.3f %.3f %.3f\n",
-				poseEsts[best_index].trans44(0, 0), poseEsts[best_index].trans44(0, 1), poseEsts[best_index].trans44(0, 2), poseEsts[best_index].trans44(0, 3));
+				trans44(0, 0), trans44(0, 1), trans44(0, 2), trans44(0, 3));
 			std::cout << buffer;
 			snprintf(buffer, 1024, "%.3f %.3f %.3f %.3f\n",
-				poseEsts[best_index].trans44(1, 0), poseEsts[best_index].trans44(1, 1), poseEsts[best_index].trans44(1, 2), poseEsts[best_index].trans44(1, 3));
+				trans44(1, 0), trans44(1, 1), trans44(1, 2), trans44(1, 3));
 			std::cout << buffer;
 			snprintf(buffer, 1024, "%.3f %.3f %.3f %.3f\n",
-				poseEsts[best_index].trans44(2, 0), poseEsts[best_index].trans44(2, 1), poseEsts[best_index].trans44(2, 2), poseEsts[best_index].trans44(2, 3));
+				trans44(2, 0), trans44(2, 1), trans44(2, 2), trans44(2, 3));
 			std::cout << buffer;
 			snprintf(buffer, 1024, "%.3f %.3f %.3f %.3f\n",
-				poseEsts[best_index].trans44(3, 0), poseEsts[best_index].trans44(3, 1), poseEsts[best_index].trans44(3, 2), poseEsts[best_index].trans44(3, 3));
+				trans44(3, 0), trans44(3, 1), trans44(3, 2), trans44(3, 3));
 			std::cout << buffer;
 
-			rgbd::transform_pointset(m_point3d_model, point3d_model_pose, poseEsts[best_index].trans44);
+			rgbd::transform_pointset(m_point3d_model, point3d_model_pose, trans44);
 			rgbd::save_as_ply(debug_path + "/best_pose.ply", point3d_model_pose, 1);
 			rgbd::save_as_ply(debug_path + "/scene.ply", point3d_scene, 1);
 
@@ -836,14 +1253,7 @@ int gpucsmod::run(std::string scene_path)
 		{
 			// assign pose to GPU
 			int currentPoseIdx = best_index;
-			for (int i = 0; i < 16; i++)
-			{
-				int row = i / 4;
-				int col = i % 4;
-				m_pPosesBatch[i] = poseEsts[currentPoseIdx].trans44(row, col);
-			}
-
-			cudaMemcpy(m_d_pPosesGPU_Batch, m_pPosesBatch, sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
+			cudaMemcpy(m_d_pPosesGPU_Batch, allPoseEsts.p_trans16 + (currentPoseIdx * 16), sizeof(float) * 16 * batchSize, cudaMemcpyHostToDevice);
 
 			TransformPointsCU(
 				m_d_pPointModelGPUBatch,
@@ -895,10 +1305,18 @@ int gpucsmod::run(std::string scene_path)
 					point3d_model_best_outliner.push_back(m_point3d_model[i]);
 				}
 			}
+
+			Eigen::Matrix<float, 4, 4> trans44;
+			trans44 <<
+				allPoseEsts.p_trans16[best_index * 16 + 0], allPoseEsts.p_trans16[best_index * 16 + 1], allPoseEsts.p_trans16[best_index * 16 + 2], allPoseEsts.p_trans16[best_index * 16 + 3],
+				allPoseEsts.p_trans16[best_index * 16 + 4], allPoseEsts.p_trans16[best_index * 16 + 5], allPoseEsts.p_trans16[best_index * 16 + 6], allPoseEsts.p_trans16[best_index * 16 + 7],
+				allPoseEsts.p_trans16[best_index * 16 + 8], allPoseEsts.p_trans16[best_index * 16 + 9], allPoseEsts.p_trans16[best_index * 16 + 10], allPoseEsts.p_trans16[best_index * 16 + 11],
+				allPoseEsts.p_trans16[best_index * 16 + 12], allPoseEsts.p_trans16[best_index * 16 + 13], allPoseEsts.p_trans16[best_index * 16 + 14], allPoseEsts.p_trans16[best_index * 16 + 15];
+
 			std::vector<Point3D> point3d_model_best_inliner_trans;
 			std::vector<Point3D> point3d_model_best_outliner_trans;
-			rgbd::transform_pointset(point3d_model_best_inliner, point3d_model_best_inliner_trans, poseEsts[best_index].trans44);
-			rgbd::transform_pointset(point3d_model_best_outliner, point3d_model_best_outliner_trans, poseEsts[best_index].trans44);
+			rgbd::transform_pointset(point3d_model_best_inliner, point3d_model_best_inliner_trans, trans44);
+			rgbd::transform_pointset(point3d_model_best_outliner, point3d_model_best_outliner_trans, trans44);
 			rgbd::save_as_ply(debug_path + "/best_pose_inliner.ply", point3d_model_best_inliner_trans, 1);
 			rgbd::save_as_ply(debug_path + "/best_pose_outliner.ply", point3d_model_best_outliner_trans, 1);
 		}
@@ -919,9 +1337,23 @@ int gpucsmod::run(std::string scene_path)
 }
 
 
-int gpucs7(std::string scene_path, std::string object_path, std::string ppf_path)
+int gpucs8_preprocess(std::string model_path)
 {
-	std::shared_ptr<gpucsmod> p = std::make_shared< gpucsmod>();
+
+	std::shared_ptr<gpucsmod2_preprocess> p = std::make_shared< gpucsmod2_preprocess>();
+	auto start = std::chrono::high_resolution_clock::now();
+	p->run(model_path, "./model_search.ply","./ppf_map");
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::cout << "gpucs" << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+		<< " milliseconds\n";
+
+	return 0;
+}
+
+int gpucs8(std::string scene_path, std::string object_path, std::string ppf_path)
+{
+	std::shared_ptr<gpucsmod3> p = std::make_shared< gpucsmod3>();
 	p->init(object_path, ppf_path);
 
 	for (int speedTestIdx = 0; speedTestIdx < 10; ++speedTestIdx)

@@ -115,7 +115,7 @@ void compute_normal_pcl(PCLPointCloud::Ptr cloud,
 	  ne.setInputCloud(cloud_in);
 	  ne.setSearchMethod(tree);
 	  //ne.setRadiusSearch(radius);
-	  ne.setKSearch(8);
+	  ne.setKSearch(10);
 	  ne.compute(*cloud_normals);
 #pragma omp parallel for
 	  for (int i = 0; i < cloud->points.size(); i++)

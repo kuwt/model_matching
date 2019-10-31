@@ -112,7 +112,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;MODAL_MATCHING_EXPORTS;FLANN_USE_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>../../include;../../include/super4pcs;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../../include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -171,13 +171,14 @@
   <ItemGroup>
     <ClCompile Include="..\..\src\imageFileIO.cpp" />
     <ClCompile Include="..\..\src\parameters.cpp" />
+    <ClCompile Include="..\..\src\QuickHull\QuickHull.cpp" />
     <ClCompile Include="..\..\src\rgbd.cpp" />
     <ClCompile Include="..\..\src\winmain.cpp" />
     <ClCompile Include="..\..\src\winmain_convetXYZIsValidMap.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs3_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucs6_match_one_object.cpp" />
     <ClCompile Include="..\..\src\winmain_gpucsmod.cpp" />
-    <ClCompile Include="..\..\src\winmain_gpucsmod2.cpp" />
+    <ClCompile Include="..\..\src\winmain_gpucsmod3.cpp" />
     <ClCompile Include="..\..\src\winmain_preprocess2.cpp" />
     <ClCompile Include="stdafx.cpp" />
   </ItemGroup>

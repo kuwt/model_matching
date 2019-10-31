@@ -63,10 +63,13 @@
     <ClCompile Include="..\..\src\winmain_gpucsmod.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\winmain_gpucsmod2.cpp">
+    <ClCompile Include="..\..\src\winmain_convetXYZIsValidMap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\winmain_convetXYZIsValidMap.cpp">
+    <ClCompile Include="..\..\src\QuickHull\QuickHull.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\winmain_gpucsmod3.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

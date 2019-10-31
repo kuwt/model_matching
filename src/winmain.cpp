@@ -17,14 +17,14 @@ int main(int argc, char** argv)
 
 	if (mode == 0)
 	{
-		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/o1/omodel.ply";
+		std::string modelpath = "D:/ronaldwork/model_matching/customtestcases/h1/hdensemodel.ply";
 		gpucs8_preprocess(modelpath);
 	}
 	else if (mode == 1)
 	{
 		std::string modelpath = "./model_search.ply";
 		std::string ppfpath = "./ppf_map";
-		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/bowl/";
+		std::string scenePath = "D:/ronaldwork/model_matching/customtestcases/h1/";
 		gpucs8(scenePath, modelpath, ppfpath);
 	}
 	else
