@@ -4,9 +4,15 @@
 static float class_threshold = 0.30; // Cut-off probability
 
 // camera parameters
-static std::vector<float> cam_intrinsics = { 1066.778, 312.986, 1067.487, 241.310 }; //YCB
-static float depth_scale = 1 / 10000.0f;
-
+/**************** ycb ***************/
+//static std::vector<float> cam_intrinsics = { 1066.778, 312.986, 1067.487, 241.310 }; //YCB
+//static float depth_scale = 1 / 10000.0f;
+/**** ***********line mod *************/
+//static std::vector<float> cam_intrinsics = { 572.4114, 325.2611, 573.57043, 242.04899 };
+//static float depth_scale = 1 / 1000.0f;
+/**** ***********packed *************/
+static std::vector<float> cam_intrinsics = { 615.957763671875, 308.1098937988281, 615.9578247070312, 246.33352661132812 };
+static float depth_scale = 1 / 8000.0f;
 static int image_width = 640;
 static int image_height = 480;
 
