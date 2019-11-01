@@ -692,7 +692,7 @@ int gpucsmod3::run(std::string scene_path)
 		point3d_scene);
 
 	auto finish = std::chrono::high_resolution_clock::now();
-	std::cout << "Loading scene " << " in "
+	std::cout << "->Loading scene " << " in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
@@ -726,7 +726,7 @@ int gpucsmod3::run(std::string scene_path)
 	}
 
 	finish = std::chrono::high_resolution_clock::now();
-	std::cout << "obtain ppf pairs " << goodPairs.size() << " in "
+	std::cout << "->obtain ppf pairs " << goodPairs.size() << " in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
@@ -735,7 +735,7 @@ int gpucsmod3::run(std::string scene_path)
 	start = std::chrono::high_resolution_clock::now();
 	std::random_shuffle(goodPairs.begin(), goodPairs.end());
 	finish = std::chrono::high_resolution_clock::now();
-	std::cout << "random_shuffle " << goodPairs.size() << " in "
+	std::cout << "->random_shuffle " << goodPairs.size() << " in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
@@ -821,12 +821,13 @@ int gpucsmod3::run(std::string scene_path)
 	}
 	
 	finish = std::chrono::high_resolution_clock::now();
-	std::cout << "calculate correspondences " << numOfTotalPose << " in "
+	std::cout << "->calculate correspondences " << numOfTotalPose << " in "
 		<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 		<< " milliseconds\n";
 
 	/***********  calculate transform for each ppf correspondences ********************/
 	{
+		start = std::chrono::high_resolution_clock::now();
 		/***  allocate memory ***/
 
 		size_t number_of_points_model = m_point3d_model.size();
@@ -853,6 +854,12 @@ int gpucsmod3::run(std::string scene_path)
 		float* d_pPointSceneNormalGPU;
 		cudaMalloc((void**)&d_pPointSceneNormalGPU, sizeof(float)* number_of_points_scene * 3);
 		cudaMemcpy(d_pPointSceneNormalGPU, pPointSceneNormal, sizeof(float)* number_of_points_scene * 3, cudaMemcpyHostToDevice);
+
+		finish = std::chrono::high_resolution_clock::now();
+		std::cout << "->malloc transform in "
+			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+			<< " milliseconds\n";
+
 
 		/*** run loop ***/
 		start = std::chrono::high_resolution_clock::now();
@@ -882,7 +889,7 @@ int gpucsmod3::run(std::string scene_path)
 		}
 
 		finish = std::chrono::high_resolution_clock::now();
-		std::cout << "calculate transform " << allPoseEsts.totalPoseSize << " in "
+		std::cout << "->calculate transform " << allPoseEsts.totalPoseSize << " in "
 			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 			<< " milliseconds\n";
 
@@ -916,6 +923,7 @@ int gpucsmod3::run(std::string scene_path)
 	{
 		/*** built ************/
 		/***  reorder scene points ***/
+		start = std::chrono::high_resolution_clock::now();
 		std::vector<Point3D> point3d_scene_sorted;
 		std::vector<int> vnumOfpointsPerPartition;
 		std::vector<int> vPartitionStartIdx;
@@ -1147,6 +1155,12 @@ int gpucsmod3::run(std::string scene_path)
 		memset(pLCPs, 0, sizeof(float) * totalComputeSize);
 
 		size_t number_of_points_model = m_point3d_model.size();
+
+		finish = std::chrono::high_resolution_clock::now();
+		std::cout << "->malloc verify " << allPoseEsts.totalPoseSize << " in "
+			<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
+			<< " milliseconds\n";
+
 		/***  run ***/
 		{
 			start = std::chrono::high_resolution_clock::now();
@@ -1194,7 +1208,7 @@ int gpucsmod3::run(std::string scene_path)
 			best_index = maxLCPIdx;
 
 			finish = std::chrono::high_resolution_clock::now();
-			std::cout << "verify transform " << allPoseEsts.totalPoseSize << " in "
+			std::cout << "->verify transform " << allPoseEsts.totalPoseSize << " in "
 				<< std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() * 0.001
 				<< " milliseconds\n";
 		}
