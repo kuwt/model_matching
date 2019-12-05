@@ -190,16 +190,14 @@ private:
 		using namespace quickhull;
 
 		/****** generate view ports *******/
-		int thetaPartition = 3;
-		int phiPartition = 3;
-		float radius = 1;
+		int thetaPartition = 6;
+		int phiPartition = 4;
+		float radius = 1; 
 		std::vector<pt3D> viewpts;
 		generateSpherePoints(thetaPartition, phiPartition, radius, viewpts);
 
-		viewpts.clear();
-		viewpts.push_back(pt3D(0, 0, 1));
-		viewpts.push_back(pt3D(0, 0, -1));
 		cv::Mat src = inputCloud;
+		
 		/************* compute isvalid points and use which view normal**************/
 		std::cout << "computing isvalid ...\n";
 		std::vector<bool> isValid(src.rows, false);
